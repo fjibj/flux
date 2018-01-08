@@ -1,0 +1,17 @@
+apiVersion: integrations.flux/v1
+kind: FluxHelmResource
+metadata:
+  name: my-fluxhelmresource2
+  namespace: kube-system
+spec:
+  chart: Chart1
+  customizations:
+    - name: image
+      value: quay.io/weaveworks/helloworld
+      type: string
+    - name: image-tag
+      value: master-a000001
+      type: string
+    - name: param1
+      value: "102"
+      type: integer

@@ -1,0 +1,10 @@
+apiVersion: integrations.flux/v1
+kind: FluxHelmResource
+metadata:
+  name: my-fluxhelmresource
+  namespace: flux
+spec:
+  chart: Chart
+status:
+  state: good
+  message: "Hello World"

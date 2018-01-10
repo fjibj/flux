@@ -2,14 +2,13 @@ package operator
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/golang/glog"
 	appsv1beta2 "k8s.io/api/apps/v1beta2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
@@ -76,8 +75,8 @@ type Controller struct {
 	recorder record.EventRecorder
 }
 
-// NewController returns a new helm-operator
-func NewController(
+// New returns a new helm-operator
+func New(
 	logger log.Logger,
 	kubeclientset kubernetes.Interface,
 	fhrclientset clientset.Interface,
@@ -109,42 +108,32 @@ func NewController(
 
 		fhrSynced: fhrInformer.Informer().HasSynced,
 
-		// TODO implement chartInformer to have chartInformer.Informer().HasSynced
+		// TODO implement chartInformer to have chartInformer.Informer().HasSynced --------
 		chartsSynced: fhrInformer.Informer().HasSynced,
-		workqueue:    workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "FluxHelmResources"),
-		recorder:     recorder,
+		//---------------------------------------------------------------------------------
+		workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "FluxHelmResources"),
+		recorder:  recorder,
 	}
 
 	glog.Info("Setting up event handlers")
 	// Set up an event handler for when FluxHelmResource resources change
 	fhrInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: controller.enqueueFluxHelmResource,
-		UpdateFunc: func(old, new interface{}) {
+		AddFunc: func(new interface{}) {
+			fmt.Printf("\n>>> Adding a Chart\n")
 			controller.enqueueFluxHelmResource(new)
 		},
+		UpdateFunc: func(old, new interface{}) {
+			fmt.Printf("\n>>> Updating a Chart\n")
+			controller.enqueueFluxHelmResource(new)
+		},
+		DeleteFunc: func(old interface{}) {
+			fmt.Printf("\n>>> Deleting a Chart\n")
+			controller.deleteChart(old)
+		},
 	})
-	// Set up an event handler for when Deployment resources change. This
-	// handler will lookup the owner of the given Deployment, and if it is
-	// owned by a FluxHelmResource resource will enqueue that FluxHelmResource resource for
-	// processing. This way, we don't need to implement custom logic for
-	// handling Deployment resources. More info on this pattern:
-	// https://github.com/kubernetes/community/blob/8cafef897a22026d42f5e5bb3f104febe7e29830/contributors/devel/controllers.md
-	/*
-		deploymentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-			AddFunc: controller.handleObject,
-			UpdateFunc: func(old, new interface{}) {
-				newDepl := new.(*appsv1beta2.Deployment)
-				oldDepl := old.(*appsv1beta2.Deployment)
-				if newDepl.ResourceVersion == oldDepl.ResourceVersion {
-					// Periodic resync will send update events for all known Deployments.
-					// Two different versions of the same Deployment will always have different RVs.
-					return
-				}
-				controller.handleObject(new)
-			},
-			DeleteFunc: controller.handleObject,
-		})
-	*/
+
+	// TODO - deal with possible independent Chart changes
+	// -------------------------------------------------------------------
 
 	return controller
 }
@@ -162,11 +151,11 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	glog.Info("********************************")
 
 	// Start the informer factories to begin populating the informer caches
-	glog.Info("Starting helm-controller")
 
 	// Wait for the caches to be synced before starting workers
 	glog.Info("Waiting for informer caches to sync")
-	if ok := cache.WaitForCacheSync(stopCh, c.chartsSynced, c.fhrSynced); !ok {
+	//	if ok := cache.WaitForCacheSync(stopCh, c.chartsSynced, c.fhrSynced); !ok {
+	if ok := cache.WaitForCacheSync(stopCh, c.fhrSynced); !ok {
 		return fmt.Errorf("failed to wait for caches to sync")
 	}
 
@@ -214,7 +203,7 @@ func (c *Controller) processNextWorkItem() bool {
 		// We expect strings to come off the workqueue. These are of the
 		// form namespace/name. We do this as the delayed nature of the
 		// workqueue means the items in the informer cache may actually be
-		// more up to date that when the item was initially put onto the
+		// more up to date than when the item was initially put onto the
 		// workqueue.
 		if key, ok = obj.(string); !ok {
 			// As the item in the workqueue is actually invalid, we call
@@ -233,6 +222,7 @@ func (c *Controller) processNextWorkItem() bool {
 		// get queued again until another change happens.
 		c.workqueue.Forget(obj)
 		glog.Infof("Successfully synced '%s'", key)
+		fmt.Printf("$$$$$ WORK QUEUE length: %d\n\n", c.workqueue.Len())
 		return nil
 	}(obj)
 
@@ -245,9 +235,7 @@ func (c *Controller) processNextWorkItem() bool {
 }
 
 // syncHandler compares the actual state with the desired, and attempts to
-//-------------------------------------------------------
-// converge the two. It then updates the Status block of the FluxHelmResource resource
-// with the current status of the resource.
+//------------------------------------------------------------------------
 func (c *Controller) syncHandler(key string) error {
 	// Convert the namespace/name string into a distinct namespace and name
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
@@ -256,88 +244,57 @@ func (c *Controller) syncHandler(key string) error {
 		return nil
 	}
 
-	// Get the FluxHelmResource resource with this namespace/name
 	fhr, err := c.fhrLister.FluxHelmResources(namespace).Get(name)
 	if err != nil {
-		// The FluxHelmResource resource may no longer exist, in which case we stop
-		// processing.
 		if errors.IsNotFound(err) {
 			runtime.HandleError(fmt.Errorf("fluxhelmresource '%s' in work queue no longer exists", key))
 			return nil
 		}
-
 		return err
 	}
 
-	spec := fhr.Spec
+	customs := fhr.Spec.Customizations
 
-	fmt.Printf("=== %#v\n\n", spec)
+	//fmt.Printf("=== %#v\n\n", customs)
 
-	// Sanity check of input - if needed
-	if spec.Chart == "" {
-		// We choose to absorb the error here as the worker would requeue the
-		// resource otherwise. Instead, the next time the resource is updated
-		// the resource will be queued again.
-		runtime.HandleError(fmt.Errorf("%s: chart name must be specified", key))
+	// Sanity check of input - needed ?
+	if customs != nil {
+		// TODO collect all empty values => return an error with the info
+		for _, cu := range customs {
+			if cu.Value == "" {
+				// We choose to absorb the error here as the worker would requeue the
+				// resource otherwise. Instead, the next time the resource is updated
+				// the resource will be queued again.
 
-		// TODO a message should be sent to inform about the malconfigured custom resource
-		return nil
+				// TODO send error to upstream (through RPC server)  instead of absorbing and skip the syncing of this fhr
+				runtime.HandleError(fmt.Errorf("%s: customization value must be specified [%s]", key, cu.Name))
+
+				fmt.Printf("=== %s: customization value must be specified [%s]\n\n", key, cu.Name)
+				c.recorder.Event(fhr, corev1.EventTypeNormal, ErrChartSync, MessageErrChartSync)
+
+				return nil
+			}
+		}
 	}
 
+	// Now do something with the relevant Chart
+	// ----------------------------------------
+	// Get the release associated with this Chart:
+	// a) helm operator created release name
+	// b) release from helm release listing
+
+	// Release does not exist => release the Chart and specify the release name (namespace:Chart name)
+	// Release exists => update the Chart release
+
+	// Finally, we update the status block of the FluxHelmResource resource to reflect the
+	// current state of the world
 	/*
-		deploymentName := fhr.Spec.Customizations
-		if deploymentName == "" {
-			// We choose to absorb the error here as the worker would requeue the
-			// resource otherwise. Instead, the next time the resource is updated
-			// the resource will be queued again.
-			runtime.HandleError(fmt.Errorf("%s: deployment name must be specified", key))
-			return nil
-		}
-
-		// Get the deployment with the name specified in FluxHelmResource.spec
-		deployment, err := c.deploymentsLister.Deployments(fhr.Namespace).Get(deploymentName)
-		// If the resource doesn't exist, we'll create it
-		if errors.IsNotFound(err) {
-			deployment, err = c.kubeclientset.AppsV1beta2().Deployments(fhr.Namespace).Create(newDeployment(fhr))
-		}
-
-		// If an error occurs during Get/Create, we'll requeue the item so we can
-		// attempt processing again later. This could have been caused by a
-		// temporary network failure, or any other transient reason.
-		if err != nil {
-			return err
-		}
-
-		// If the Deployment is not controlled by this FluxHelmResource resource, we should log
-		// a warning to the event recorder and ret
-		if !metav1.IsControlledBy(deployment, fhr) {
-			msg := fmt.Sprintf(MessageResourceExists, deployment.Name)
-			c.recorder.Event(fhr, corev1.EventTypeWarning, ErrResourceExists, msg)
-			return fmt.Errorf(msg)
-		}
-
-		// If this number of the replicas on the FluxHelmResource resource is specified, and the
-		// number does not equal the current desired replicas on the Deployment, we
-		// should update the Deployment resource.
-		if fhr.Spec.Replicas != nil && *fhr.Spec.Replicas != *deployment.Spec.Replicas {
-			glog.V(4).Infof("FluxHelmResourcer: %d, deplR: %d", *fhr.Spec.Replicas, *deployment.Spec.Replicas)
-			deployment, err = c.kubeclientset.AppsV1beta2().Deployments(fhr.Namespace).Update(newDeployment(fhr))
-		}
-
-		// If an error occurs during Update, we'll requeue the item so we can
-		// attempt processing again later. THis could have been caused by a
-		// temporary network failure, or any other transient reason.
-		if err != nil {
-			return err
-		}
-
-		// Finally, we update the status block of the FluxHelmResource resource to reflect the
-		// current state of the world
-		err = c.updateFluxHelmResourceStatus(fhr, deployment)
+		err = c.updateFluxHelmResourceStatus(fhr, chartRelease)
 		if err != nil {
 			return err
 		}
 	*/
+
 	c.recorder.Event(fhr, corev1.EventTypeNormal, ChartSynced, MessageChartSynced)
 	return nil
 }
@@ -360,148 +317,59 @@ func (c *Controller) updateFluxHelmResourceStatus(fhr *ifv1.FluxHelmResource, de
 	return nil
 }
 
-// enqueueFluxHelmResource takes a FluxHelmResource resource and converts it into a namespace/name
-// string which is then put onto the work queue. This method should *not* be
-// passed resources of any type other than FluxHelmResource.
-func (c *Controller) enqueueFluxHelmResource(obj interface{}) {
+func getCacheKey(obj interface{}) (string, error) {
 	var key string
 	var err error
 	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
 		runtime.HandleError(err)
+		return "", err
+	}
+	fmt.Printf("*** Cache key is %s\n", key)
+
+	return key, nil
+}
+
+// enqueueFluxHelmResource takes a FluxHelmResource resource and converts it into a namespace/name
+// string which is then put onto the work queue. This method should not be
+// passed resources of any type other than FluxHelmResource.
+func (c *Controller) enqueueFluxHelmResource(obj interface{}) {
+	var key string
+	var err error
+	if key, err = getCacheKey(obj); err != nil {
 		return
 	}
 	c.workqueue.AddRateLimited(key)
 }
 
-// handleObject will take any resource implementing metav1.Object and attempt
-// to find the FluxHelmResource resource that 'owns' it. It does this by looking at the
-// objects metadata.ownerReferences field for an appropriate OwnerReference.
-// It then enqueues that FluxHelmResource resource to be processed. If the object does not
-// have an appropriate OwnerReference, it will simply be skipped.
-func (c *Controller) handleObject(obj interface{}) {
-	var object metav1.Object
-	var ok bool
-	if object, ok = obj.(metav1.Object); !ok {
-		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
-		if !ok {
-			runtime.HandleError(fmt.Errorf("error decoding object, invalid type"))
-			return
-		}
-		object, ok = tombstone.Obj.(metav1.Object)
-		if !ok {
-			runtime.HandleError(fmt.Errorf("error decoding object tombstone, invalid type"))
-			return
-		}
-		glog.V(4).Infof("Recovered deleted object '%s' from tombstone", object.GetName())
+func (c *Controller) deleteChart(obj interface{}) error {
+	var key string
+	var err error
+	if key, err = getCacheKey(obj); err != nil {
+		return nil
 	}
-	glog.V(4).Infof("Processing object: %s", object.GetName())
-	if ownerRef := metav1.GetControllerOf(object); ownerRef != nil {
-		// If this object is not owned by a FluxHelmResource, we should not do anything more
-		// with it.
-		if ownerRef.Kind != "FluxHelmResource" {
-			return
-		}
 
-		fhr, err := c.fhrLister.FluxHelmResources(object.GetNamespace()).Get(ownerRef.Name)
-		if err != nil {
-			glog.V(4).Infof("ignoring orphaned object '%s' of fhr '%s'", object.GetSelfLink(), ownerRef.Name)
-			return
+	parts := strings.Split(key, "/")
+	fhr, err := c.fhrLister.FluxHelmResources(parts[0]).Get(parts[1])
+	if err != nil {
+		// The FluxHelmResource resource may no longer exist, in which case we stop
+		// processing.
+		if errors.IsNotFound(err) {
+			runtime.HandleError(fmt.Errorf("fluxhelmresource '%s' in work queue no longer exists", key))
+			return nil
 		}
+		return err
+	}
+	chart := fhr.Name
+	fmt.Printf("\t@@@ DELETED Chart %s\n", chart)
 
-		c.enqueueFluxHelmResource(fhr)
-		return
-	}
-}
-
-// newDeployment creates a new Deployment for a FluxHelmResource resource. It also sets
-// the appropriate OwnerReferences on the resource so handleObject can discover
-// the FluxHelmResource resource that 'owns' it.
-func newDeployment(fhr *ifv1.FluxHelmResource) *appsv1beta2.Deployment {
-	labels := map[string]string{
-		"app":        "nginx",
-		"controller": fhr.Name,
-	}
-	return &appsv1beta2.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			//Name:      fhr.Spec.DeploymentName,
-			Name:      fhr.Name,
-			Namespace: fhr.Namespace,
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(fhr, schema.GroupVersionKind{
-					Group:   ifv1.SchemeGroupVersion.Group,
-					Version: ifv1.SchemeGroupVersion.Version,
-					Kind:    "FluxHelmResource",
-				}),
-			},
-		},
-		Spec: appsv1beta2.DeploymentSpec{
-			//Replicas: fhr.Spec.Replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "nginx",
-							Image: "nginx:latest",
-						},
-					},
-				},
-			},
-		},
-	}
+	return nil
 }
 
 //func newChartRelease(fhr *ifv1.FluxHelmResource) *appsv1beta2.Deployment {
 func newChartRelease(fhr *ifv1.FluxHelmResource) {
-
-	fmt.Printf(">>> Released new chart for %#v\n\n", fhr)
-	/*
-		labels := map[string]string{
-			"app":        "nginx",
-			"controller": fhr.Name,
-		}
-		return &appsv1beta2.Deployment{
-			ObjectMeta: metav1.ObjectMeta{
-				//Name:      fhr.Spec.DeploymentName,
-				Name:      fhr.Name,
-				Namespace: fhr.Namespace,
-				OwnerReferences: []metav1.OwnerReference{
-					*metav1.NewControllerRef(fhr, schema.GroupVersionKind{
-						Group:   ifv1.SchemeGroupVersion.Group,
-						Version: ifv1.SchemeGroupVersion.Version,
-						Kind:    "FluxHelmResource",
-					}),
-				},
-			},
-			Spec: appsv1beta2.DeploymentSpec{
-				//Replicas: fhr.Spec.Replicas,
-				Selector: &metav1.LabelSelector{
-					MatchLabels: labels,
-				},
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Labels: labels,
-					},
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name:  "nginx",
-								Image: "nginx:latest",
-							},
-						},
-					},
-				},
-			},
-		}
-	*/
+	fmt.Printf("\t@@@  Released new chart for %#v\n\n", fhr.Name)
 }
 
 func chartReleaseUpdate(fhr *ifv1.FluxHelmResource) {
-
-	fmt.Printf(">>> Updated release for new chart for %#v\n\n", fhr)
+	fmt.Printf("\t@@@ Updated release for new chart for %#v\n\n", fhr.Name)
 }

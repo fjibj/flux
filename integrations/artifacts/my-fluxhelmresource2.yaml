@@ -4,7 +4,6 @@ metadata:
   name: my-fluxhelmresource2
   namespace: kube-system
 spec:
-  chart: Chart1
   customizations:
     - name: image
       value: quay.io/weaveworks/helloworld

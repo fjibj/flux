@@ -4,7 +4,13 @@ metadata:
   name: my-fluxhelmresource
   namespace: flux
 spec:
-  chart: Chart
+  customizations:
+    - name: image
+      value: "{{ .Values.nginx.image }}"
+      type: string
+    - name: image-tag
+      value: "{{ .Values.nginx.image.version }}"
+      type: string
 status:
   state: good
   message: "Hello World"

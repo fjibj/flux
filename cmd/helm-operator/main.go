@@ -34,7 +34,6 @@ import (
 	clientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
 	"github.com/weaveworks/flux/integrations/helm/operator"
 	"github.com/weaveworks/flux/ssh"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -132,8 +131,9 @@ func main() {
 
 	fmt.Println("I am functional!")
 
-	// get clientset
-
+	// get CRD clientset
+	//------------------
+	// set up cluster configuration
 	cfg, err := clientcmd.BuildConfigFromFlags(*master, *kubeconfig)
 	if err != nil {
 		glog.Fatalf("Error building kubeconfig: %v", err)
@@ -152,7 +152,8 @@ func main() {
 	//	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kube, time.Second*30)
 	ifInformerFactory := ifinformers.NewSharedInformerFactory(ifClient, time.Second*30)
 
-	opr := operator.NewController(logger, kubeClient, ifClient, ifInformerFactory)
+	//
+	opr := operator.New(logger, kubeClient, ifClient, ifInformerFactory)
 
 	//go kubeInformerFactory.Start(stopCh)
 	go ifInformerFactory.Start(shutdown)
@@ -161,75 +162,7 @@ func main() {
 		glog.Fatalf("Error running controller: %s", err.Error())
 	}
 
-	go func() {
-		for {
-			/*
-				// create CRD:
-				/*
-				A CRD manifest is loaded before helm-operator starts
-			*/
-			list, err := ifClient.IntegrationsV1().FluxHelmResources("kube-system").List(metav1.ListOptions{})
-			if err != nil {
-				glog.Errorf("Error listing all fluxhelmresources: %v", err)
-				time.Sleep(1 * time.Minute)
-				continue
-			}
-
-			fmt.Printf(">>> found %v items\n\n", len(list.Items))
-
-			for _, fhr := range list.Items {
-				fmt.Println("-------------------------------")
-
-				fmt.Printf("fluxhelmresource %s for chart %q with customizations %#v\n", fhr.Name, fhr.Spec.Chart, fhr.Spec.Customizations)
-
-				fmt.Printf("\t\t>>> found %v parameters\n", len(fhr.Spec.Customizations))
-
-				for _, cp := range fhr.Spec.Customizations {
-					fmt.Printf("\t\t * customization with \n\t\tname %q\n\t\tvalue %q\n\t\ttype %q\n", cp.Name, cp.Value, cp.Type)
-				}
-
-				fmt.Println("-------------------------------")
-
-			}
-
-			time.Sleep(5 * time.Minute)
-		}
-	}()
-
 }
-
-// set up cluster tools
-// kubectl
-// cluster ?
-
-// Watch for changes in Flux-Helm CRDs
-
-/*
-	// Example Controller
-	// Watch for changes in Example objects and fire Add, Delete, Update callbacks
-	_, controller := cache.NewInformer(
-		crdclient.NewListWatch(),
-		&crd.Example{},
-		time.Minute*10,
-		cache.ResourceEventHandlerFuncs{
-			AddFunc: func(obj interface{}) {
-				fmt.Printf("add: %s \n", obj)
-			},
-			DeleteFunc: func(obj interface{}) {
-				fmt.Printf("delete: %s \n", obj)
-			},
-			UpdateFunc: func(oldObj, newObj interface{}) {
-				fmt.Printf("Update old: %s \n      New: %s\n", oldObj, newObj)
-			},
-		},
-	)
-
-	stop := make(chan struct{})
-	go controller.Run(stop)
-
-	// Wait forever
-select {}
-*/
 
 // Helper functions
 func optionalVar(fs *pflag.FlagSet, value ssh.OptionalValue, name, usage string) ssh.OptionalValue {

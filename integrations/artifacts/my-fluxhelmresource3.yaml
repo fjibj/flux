@@ -2,3 +2,9 @@ apiVersion: integrations.flux/v1
 kind: FluxHelmResource
 metadata:
   name: my-fluxhelmresource3
+  namespace: default
+spec:
+  customizations:
+    - name: image
+      value: "{{ .Values.catalyst.image }}:{{ .Values.catalyst.image.version }}"
+      type: string

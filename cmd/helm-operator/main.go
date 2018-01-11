@@ -32,6 +32,7 @@ import (
 	//"github.com/weaveworks/flux/integrations/helm/operator/operator"
 
 	clientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
+	"github.com/weaveworks/flux/integrations/helm/chart"
 	"github.com/weaveworks/flux/integrations/helm/operator"
 	"github.com/weaveworks/flux/ssh"
 	"k8s.io/client-go/kubernetes"
@@ -130,6 +131,7 @@ func main() {
 	//		later on add a check that the CRD itself exists and creat it if not
 
 	fmt.Println("I am functional!")
+	chart.GetChart()
 
 	// get CRD clientset
 	//------------------

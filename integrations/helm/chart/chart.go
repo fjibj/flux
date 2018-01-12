@@ -35,11 +35,14 @@ func init() {
 func GetChart() {
 	hcl := helm.NewClient(helm.Host(settings.TillerHost))
 
+	fmt.Printf("hcl: %#v\n", hcl)
+
 	var v *rls.GetVersionResponse
 	var err error
-	if v, err = hcl.GetVersion(voption); err != nil {
-		fmt.Printf("Tiller version is: %#v\n", v)
+	if v, err = hcl.GetVersion(voption); err == nil {
+		fmt.Printf("Error: %#v\n", err)
 	}
+	fmt.Printf("Tiller version is: %#v\n", v)
 
 	response, _ := hcl.ListReleases()
 

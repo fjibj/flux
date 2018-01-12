@@ -375,7 +375,7 @@
 
 [[projects]]
   name = "google.golang.org/grpc"
-  packages = [".","codes","connectivity","credentials","grpclb/grpc_lb_v1/messages","grpclog","internal","keepalive","metadata","naming","peer","stats","status","tap","transport"]
+  packages = [".","codes","credentials","grpclb/grpc_lb_v1","grpclog","internal","keepalive","metadata","naming","peer","stats","status","tap","transport"]
   revision = "b610ffd3f8786563002bd5b6a9951d56f64a4921"
   version = "v1.3.0"
 
@@ -435,6 +435,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "df906656cb34262bb6c9d2f497348d0deafcfa200f02d9dcad3ff1003a3e68f2"
+  inputs-digest = "fcfbfb3dac30fb6f31d49c24d45d9f6b34415b37e19312e8fb4f44d2b7cb69c4"
   solver-name = "gps-cdcl"
   solver-version = 1

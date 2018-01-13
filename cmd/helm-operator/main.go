@@ -28,11 +28,14 @@ import (
 
 	"github.com/golang/glog"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	ifinformers "github.com/weaveworks/flux/integrations/client/informers/externalversions"
 	//"github.com/weaveworks/flux/integrations/helm/operator/operator"
 
 	clientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
 	"github.com/weaveworks/flux/integrations/helm/chart"
+	helmclient "github.com/weaveworks/flux/integrations/helm/client"
 	"github.com/weaveworks/flux/integrations/helm/operator"
 	"github.com/weaveworks/flux/ssh"
 	"k8s.io/client-go/kubernetes"
@@ -93,7 +96,7 @@ func init() {
 	k8sSecretVolumeMountPath = fs.String("k8s-secret-volume-mount-path", "/etc/fluxd/ssh", "Mount location of the k8s secret storing the private SSH key")
 	k8sSecretDataKey = fs.String("k8s-secret-data-key", "identity", "Data key holding the private SSH key within the k8s secret")
 	// SSH key generation
-	sshKeyBits = optionalVar(fs, &ssh.KeyBitsValue{}, "ssh-keygen-bits", "-b argument to ssh-keygen (default unspecified)")
+	sshKeyBits = optionalVar(fs, &ssh.KeyBitsValue{}, "ssh-keygen-bitsintegrations/", "-b argument to ssh-keygen (default unspecified)")
 	sshKeyType = optionalVar(fs, &ssh.KeyTypeValue{}, "ssh-keygen-type", "-t argument to ssh-keygen (default unspecified)")
 
 }
@@ -130,8 +133,7 @@ func main() {
 	// Check if the FluxHelmResources exist in the cluster
 	//		later on add a check that the CRD itself exists and creat it if not
 
-	fmt.Println("I am functional!")
-	chart.GetChart()
+	fmt.Println("!!! I am functional! !!!\n")
 
 	// get CRD clientset
 	//------------------
@@ -145,6 +147,40 @@ func main() {
 	if err != nil {
 		glog.Fatalf("Error building kubernetes clientset: %s", err.Error())
 	}
+
+	ts, err := kubeClient.CoreV1().Services("kube-system").Get("tiller-deploy", metav1.GetOptions{})
+	fmt.Printf("\n-------------\n>>> TILLER SERVICE IP=%#v\n-------------\n", ts.Spec.ClusterIP)
+	if err != nil {
+		panic(err)
+	}
+	ip := ts.Spec.ClusterIP
+	port := "44134"
+
+	opts := helmclient.Options{
+		IP:   ip,
+		Port: port,
+	}
+
+	hc, err := helmclient.New(kubeClient, opts)
+	if err != nil {
+		panic(err)
+	}
+
+	ch := chart.Chart{
+		Client: *hc,
+	}
+
+	ch.GetReleases()
+
+	/*
+		kss, err := kubeClient.CoreV1().Services("kube-system").List(metav1.ListOptions{})
+		if err != nil {
+			glog.Fatalf("Error getting services: %s", err.Error())
+		}
+		for i, s := range kss.Items {
+			fmt.Printf(">>> services: %d - %#v\n\n", i, s)
+		}
+	*/
 
 	ifClient, err := clientset.NewForConfig(cfg)
 	if err != nil {

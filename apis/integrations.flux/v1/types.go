@@ -12,14 +12,15 @@ import (
 // FluxHelmResource represents custom resource associated with a Helm Chart
 type FluxHelmResource struct {
 	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata,omitempty"`
+	metav1.ObjectMeta `json:"metadata"`
 
 	Spec FluxHelmResourceSpec `json:"spec"`
 }
 
 // FluxHelmResourceSpec is the spec for a FluxHelmResource resource
 type FluxHelmResourceSpec struct {
-	GitPath        string           `json:"gitpath,omitempty"`
+	ChartGitPath   string           `json:"chartgitpath"`
+	ChartUpdate    bool             `json:"chartupdate"`
 	Customizations []HelmChartParam `json:"customizations,omitempty"`
 }
 
@@ -29,9 +30,9 @@ type FluxHelmResourceSpec struct {
 //		Value ...
 //		Type  ... type: string, integer, float; if missing, then string is the default
 type HelmChartParam struct {
-	Name  string `json:"name,omitempty"`
+	Name  string `json:"name"`
 	Value string `json:"value"`
-	Type  string `json:"type,omitempty"`
+	Type  string `json:"type"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

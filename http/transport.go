@@ -32,13 +32,11 @@ func NewAPIRouter() *mux.Router {
 	r.NewRoute().Name("ListServices").Methods("GET").Path("/v6/services").Queries("namespace", "{namespace}") // optional namespace!
 	r.NewRoute().Name("ListImages").Methods("GET").Path("/v6/images").Queries("service", "{service}")
 
-	r.NewRoute().Name("UpdateImages").Methods("POST").Path("/v6/update-images").Queries("service", "{service}", "image", "{image}", "kind", "{kind}")
-	r.NewRoute().Name("UpdatePolicies").Methods("PATCH").Path("/v6/policies")
+	r.NewRoute().Name("UpdateManifests").Methods("POST").Path("/v9/update-manifests")
 	r.NewRoute().Name("JobStatus").Methods("GET").Path("/v6/jobs").Queries("id", "{id}")
 	r.NewRoute().Name("SyncStatus").Methods("GET").Path("/v6/sync").Queries("ref", "{ref}")
 	r.NewRoute().Name("Export").Methods("HEAD", "GET").Path("/v6/export")
-	r.NewRoute().Name("GetPublicSSHKey").Methods("GET").Path("/v6/identity.pub")
-	r.NewRoute().Name("RegeneratePublicSSHKey").Methods("POST").Path("/v6/identity.pub")
+	r.NewRoute().Name("GitRepoConfig").Methods("POST").Path("/v9/git-repo-config")
 
 	return r // TODO 404 though?
 }

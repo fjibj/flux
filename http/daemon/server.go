@@ -9,12 +9,10 @@ import (
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 	"github.com/weaveworks/common/middleware"
 
-	"github.com/weaveworks/flux"
 	transport "github.com/weaveworks/flux/http"
 	"github.com/weaveworks/flux/image"
 	"github.com/weaveworks/flux/job"
 	fluxmetrics "github.com/weaveworks/flux/metrics"
-	"github.com/weaveworks/flux/policy"
 	"github.com/weaveworks/flux/remote"
 	"github.com/weaveworks/flux/update"
 )
@@ -51,13 +49,11 @@ func NewHandler(d remote.Platform, r *mux.Router) http.Handler {
 	handle := HTTPServer{d}
 	r.Get("JobStatus").HandlerFunc(handle.JobStatus)
 	r.Get("SyncStatus").HandlerFunc(handle.SyncStatus)
-	r.Get("UpdateImages").HandlerFunc(handle.UpdateImages)
-	r.Get("UpdatePolicies").HandlerFunc(handle.UpdatePolicies)
+	r.Get("UpdateManifests").HandlerFunc(handle.UpdateManifests)
 	r.Get("ListServices").HandlerFunc(handle.ListServices)
 	r.Get("ListImages").HandlerFunc(handle.ListImages)
 	r.Get("Export").HandlerFunc(handle.Export)
-	r.Get("GetPublicSSHKey").HandlerFunc(handle.GetPublicSSHKey)
-	r.Get("RegeneratePublicSSHKey").HandlerFunc(handle.RegeneratePublicSSHKey)
+	r.Get("GitRepoConfig").HandlerFunc(handle.GitRepoConfig)
 
 	r.Get("GitPushHook").HandlerFunc(handle.GitPushHook)
 	r.Get("ImagePushHook").HandlerFunc(handle.ImagePushHook)
@@ -139,82 +135,18 @@ func (s HTTPServer) ListImages(w http.ResponseWriter, r *http.Request) {
 	transport.JSONResponse(w, r, d)
 }
 
-func (s HTTPServer) UpdateImages(w http.ResponseWriter, r *http.Request) {
-	var (
-		vars  = mux.Vars(r)
-		image = vars["image"]
-		kind  = vars["kind"]
-	)
-	if err := r.ParseForm(); err != nil {
-		transport.WriteError(w, r, http.StatusBadRequest, errors.Wrapf(err, "parsing form"))
-		return
-	}
-	var serviceSpecs []update.ResourceSpec
-	for _, service := range r.Form["service"] {
-		serviceSpec, err := update.ParseResourceSpec(service)
-		if err != nil {
-			transport.WriteError(w, r, http.StatusBadRequest, errors.Wrapf(err, "parsing service spec %q", service))
-			return
-		}
-		serviceSpecs = append(serviceSpecs, serviceSpec)
-	}
-	imageSpec, err := update.ParseImageSpec(image)
-	if err != nil {
-		transport.WriteError(w, r, http.StatusBadRequest, errors.Wrapf(err, "parsing image spec %q", image))
-		return
-	}
-	releaseKind, err := update.ParseReleaseKind(kind)
-	if err != nil {
-		transport.WriteError(w, r, http.StatusBadRequest, errors.Wrapf(err, "parsing release kind %q", kind))
-		return
-	}
-
-	var excludes []flux.ResourceID
-	for _, ex := range r.URL.Query()["exclude"] {
-		s, err := flux.ParseResourceID(ex)
-		if err != nil {
-			transport.WriteError(w, r, http.StatusBadRequest, errors.Wrapf(err, "parsing excluded service %q", ex))
-			return
-		}
-		excludes = append(excludes, s)
-	}
-
-	spec := update.ReleaseSpec{
-		ServiceSpecs: serviceSpecs,
-		ImageSpec:    imageSpec,
-		Kind:         releaseKind,
-		Excludes:     excludes,
-	}
-	cause := update.Cause{
-		User:    r.FormValue("user"),
-		Message: r.FormValue("message"),
-	}
-	result, err := s.daemon.UpdateManifests(r.Context(), update.Spec{Type: update.Images, Cause: cause, Spec: spec})
-	if err != nil {
-		transport.ErrorResponse(w, r, err)
-		return
-	}
-	transport.JSONResponse(w, r, result)
-}
-
-func (s HTTPServer) UpdatePolicies(w http.ResponseWriter, r *http.Request) {
-	var updates policy.Updates
-	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+func (s HTTPServer) UpdateManifests(w http.ResponseWriter, r *http.Request) {
+	var spec update.Spec
+	if err := json.NewDecoder(r.Body).Decode(&spec); err != nil {
 		transport.WriteError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
-	cause := update.Cause{
-		User:    r.FormValue("user"),
-		Message: r.FormValue("message"),
-	}
-
-	jobID, err := s.daemon.UpdateManifests(r.Context(), update.Spec{Type: update.Policy, Cause: cause, Spec: updates})
+	jobID, err := s.daemon.UpdateManifests(r.Context(), spec)
 	if err != nil {
 		transport.ErrorResponse(w, r, err)
 		return
 	}
-
 	transport.JSONResponse(w, r, jobID)
 }
 
@@ -238,21 +170,14 @@ func (s HTTPServer) Export(w http.ResponseWriter, r *http.Request) {
 	transport.JSONResponse(w, r, status)
 }
 
-func (s HTTPServer) GetPublicSSHKey(w http.ResponseWriter, r *http.Request) {
-	res, err := s.daemon.GitRepoConfig(r.Context(), false)
+func (s HTTPServer) GitRepoConfig(w http.ResponseWriter, r *http.Request) {
+	var regenerate bool
+	if err := json.NewDecoder(r.Body).Decode(&regenerate); err != nil {
+		transport.WriteError(w, r, http.StatusBadRequest, err)
+	}
+	res, err := s.daemon.GitRepoConfig(r.Context(), regenerate)
 	if err != nil {
 		transport.ErrorResponse(w, r, err)
-		return
 	}
-	transport.JSONResponse(w, r, res.PublicSSHKey)
-}
-
-func (s HTTPServer) RegeneratePublicSSHKey(w http.ResponseWriter, r *http.Request) {
-	_, err := s.daemon.GitRepoConfig(r.Context(), true)
-	if err != nil {
-		transport.ErrorResponse(w, r, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-	return
+	transport.JSONResponse(w, r, res)
 }

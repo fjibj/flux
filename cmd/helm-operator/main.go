@@ -101,16 +101,26 @@ func init() {
 
 }
 
+type RevisionPatch struct {
+	Revision string
+}
+type StatusPatch struct {
+	Status RevisionPatch
+}
+
 func main() {
 
 	fs.Parse(os.Args)
 
-	// Setup logging
-	logger = log.NewLogfmtLogger(os.Stderr)
-	logger = log.With(logger, "ts", log.DefaultTimestampUTC)
-	logger = log.With(logger, "caller", log.DefaultCaller)
+	// Set up logging
+	{
+		logger = log.NewLogfmtLogger(os.Stderr)
+		logger = log.With(logger, "ts", log.DefaultTimestampUTC)
+		logger = log.With(logger, "caller", log.DefaultCaller)
+	}
+	// ----------------------------------------------------------------------
 
-	// Shutdown
+	// Set up shutdown
 	errc := make(chan error)
 
 	// Shutdown trigger for goroutines
@@ -129,11 +139,12 @@ func main() {
 		close(shutdown)
 		shutdownWg.Wait()
 	}()
+	// ----------------------------------------------------------------------
 
 	// Check if the FluxHelmResources exist in the cluster
 	//		later on add a check that the CRD itself exists and creat it if not
 
-	fmt.Println("!!! I am functional! !!!\n")
+	logger.Log("component", "helm-operator", "info", "!!! I am functional! !!!")
 
 	// get CRD clientset
 	//------------------
@@ -149,16 +160,24 @@ func main() {
 	}
 
 	ts, err := kubeClient.CoreV1().Services("kube-system").Get("tiller-deploy", metav1.GetOptions{})
+	fmt.Printf("\n-------------\n>>> TILLER SERVICE ALL=%#v\n-------------\n", ts.Spec)
+
 	fmt.Printf("\n-------------\n>>> TILLER SERVICE IP=%#v\n-------------\n", ts.Spec.ClusterIP)
 	if err != nil {
 		panic(err)
 	}
+
+	ports := ts.Spec.Ports
+	fmt.Printf("\n-------------\n>>> TILLER SERVICE PORTS=%#v\n-------------\n", ports)
+
 	ip := ts.Spec.ClusterIP
-	port := "44134"
+	//port := "44134"
+	port := ts.Spec.Ports[0].Port
+	fmt.Printf("\n-------------\n>>> TILLER SERVICE PORT=%#v\n-------------\n", port)
 
 	opts := helmclient.Options{
 		IP:   ip,
-		Port: port,
+		Port: fmt.Sprintf("%v", port),
 	}
 
 	hc, err := helmclient.New(kubeClient, opts)
@@ -189,12 +208,75 @@ func main() {
 
 	//	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kube, time.Second*30)
 	ifInformerFactory := ifinformers.NewSharedInformerFactory(ifClient, time.Second*30)
+	go ifInformerFactory.Start(shutdown)
+
+	//	go func(logger log.Logger) {
+	//		for {
+	/*
+		// create CRD:
+		/*
+		A CRD manifest is loaded before helm-operator starts
+	*/
+	//n := 11111
+	for {
+		list, err := ifClient.IntegrationsV1().FluxHelmResources("kube-system").List(metav1.ListOptions{})
+		fmt.Printf("\n>>> FOUND %v items\n\n", len(list.Items))
+		if err != nil {
+			glog.Errorf("Error listing all fluxhelmresources: %v", err)
+			//time.Sleep(1 * time.Minute)
+			//continue
+			os.Exit(1)
+		}
+
+		for _, fhr := range list.Items {
+			fmt.Println("=============== START OF PATCHING ================")
+			fmt.Println("-----------------------------------------------------")
+			fmt.Printf("fluxhelmresource %s:\n\n%#v\n", fhr.Name, fhr)
+			fmt.Println("-----------------------------------------------------")
+
+			fmt.Printf("fluxhelmresource %s for chart path %q and release name [%s] with customizations %#v\n", fhr.Name, fhr.Spec.ChartGitPath, fhr.Spec.ReleaseName, fhr.Spec.Customizations)
+
+			fmt.Printf("\t\t>>> found %v parameters\n", len(fhr.Spec.Customizations))
+
+			for _, cp := range fhr.Spec.Customizations {
+				fmt.Printf("\t\t * customization with \n\t\tname %q\n\t\tvalue %q\n", cp.Name, cp.Value)
+			}
+
+			/*
+				n = n + 10
+				statusPatch := StatusPatch{
+					Status: RevisionPatch{strconv.Itoa(n)},
+				}
+
+				data, err := json.Marshal(statusPatch)
+
+				fmt.Println(">>>> ", string(data), " <<<<")
+
+				if err != nil {
+					logger.Log("E R R O R", err.Error())
+				}
+				newFhr, err := ifClient.IntegrationsV1().FluxHelmResources("kube-system").Patch(fhr.Name, types.StrategicMergePatchType, data)
+				if err != nil {
+					logger.Log("E R R O R", err.Error())
+					continue
+				}
+				fmt.Printf("\t\tS U C C E S S - patched to %#v\n\n", newFhr)
+
+				fmt.Println("============== END OF PATCHING =================")
+			*/
+
+			time.Sleep(15 * time.Second)
+
+		}
+
+		time.Sleep(30 * time.Second)
+	}
+
+	//		}
+	//	}(log.With(logger, "fhr loop", "testing"))
 
 	//
-	opr := operator.New(logger, kubeClient, ifClient, ifInformerFactory)
-
-	//go kubeInformerFactory.Start(stopCh)
-	go ifInformerFactory.Start(shutdown)
+	opr := operator.New(log.With(logger, "component", "helm-operator"), kubeClient, ifClient, ifInformerFactory)
 
 	if err = opr.Run(2, shutdown); err != nil {
 		glog.Fatalf("Error running controller: %s", err.Error())

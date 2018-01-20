@@ -14,13 +14,15 @@ type FluxHelmResource struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`
 
-	Spec FluxHelmResourceSpec `json:"spec"`
+	Spec   FluxHelmResourceSpec   `json:"spec"`
+	Status FluxHelmResourceStatus `json:"status"`
 }
 
 // FluxHelmResourceSpec is the spec for a FluxHelmResource resource
+// FluxHelmResourceSpec
 type FluxHelmResourceSpec struct {
 	ChartGitPath   string           `json:"chartgitpath"`
-	ChartUpdate    bool             `json:"chartupdate"`
+	ReleaseName    string           `json:"releasename,omitempty"`
 	Customizations []HelmChartParam `json:"customizations,omitempty"`
 }
 
@@ -29,10 +31,16 @@ type FluxHelmResourceSpec struct {
 //		Name  ... parameter name; if missing this parameter will be discarded
 //		Value ...
 //		Type  ... type: string, integer, float; if missing, then string is the default
+
 type HelmChartParam struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
 	Type  string `json:"type"`
+}
+
+// FluxHelmResourceStatus is the status for a FluxHelmResource resource
+type FluxHelmResourceStatus struct {
+	Revision string `json:"revision"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

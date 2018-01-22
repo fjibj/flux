@@ -108,21 +108,21 @@ func (ch *Checkout) ChangedCharts(crs []ifv1.FluxHelmResource) ([]ifv1.FluxHelmR
 	if err := ch.pull(); err != nil {
 		return nil, err
 	}
-	rev, err := ch.getRevision()
-	if err != nil {
-		return nil, err
-	}
+	/*
+		rev, err := ch.getRevision()
+		if err != nil {
+			return nil, err
+		}
 
-	var crForUpdate []ifv1.FluxHelmResource
-	for _, cr := range crs {
-		/*
-			crstatus := cr.Status.Revision
-			// When a new Custom Resource is created, Status.Revision
-			if crstatus != "" && crstatus != rev {
-				crForUpdate = append(crForUpdate, cr)
-			}
-		*/
-	}
+		var crForUpdate []ifv1.FluxHelmResource
+		for _, cr := range crs {
+				crstatus := cr.Status.Revision
+				// When a new Custom Resource is created, Status.Revision
+				if crstatus != "" && crstatus != rev {
+					crForUpdate = append(crForUpdate, cr)
+				}
+		}
+	*/
 	return []ifv1.FluxHelmResource{}, nil
 }
 

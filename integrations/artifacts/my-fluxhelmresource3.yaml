@@ -1,10 +1,11 @@
 apiVersion: integrations.flux/v1
 kind: FluxHelmResource
 metadata:
-  name: my-fluxhelmresource3
-  namespace: default
+  name: default
+  namespace: defaultmongo
 spec:
+  chartgitpath: charts/mongo
   customizations:
     - name: image
-      value: "{{ .Values.catalyst.image }}:{{ .Values.catalyst.image.version }}"
+      value: quay.io/weaveworks/byeworld:master-a000032
       type: string

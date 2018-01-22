@@ -2,35 +2,37 @@
   apiVersion: integrations.flux/v1
   kind: FluxHelmResource
   metadata:
-    name: chart1
+    name: kubesystemhelloworld
     namespace: kube-system
+    labels:
+      chart: charts_chart1
   spec:
-    gitpath: charts
+    chartgitpath: charts/chart1
     customizations:
       - name: image
         value: quay.io/weaveworks/helloworld
         type: string
       - name: image-tag
         value: master-a000001
-        type: string
       - name: param1
-        value: "102"
-        type: integer
+        value: "105"
+        type: int
 ---
   apiVersion: integrations.flux/v1
   kind: FluxHelmResource
   metadata:
-    name: chart2
+    name: kubesystembyeworld
     namespace: kube-system
+    labels:
+      chart: charts_chart2
   spec:
-    gitpath: charts
+    chartgitpath: charts/chart2
     customizations:
       - name: image
-        value: quay.io/weaveworks/helloworld
+        value: quay.io/weaveworks/byeworld
         type: string
       - name: image-tag
-        value: master-a000001
-        type: string
+        value: master-a000032
       - name: param1
-        value: "102"
-        type: integer            
+        value: fake3
+        type: string

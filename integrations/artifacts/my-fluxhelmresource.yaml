@@ -1,16 +1,14 @@
 apiVersion: integrations.flux/v1
 kind: FluxHelmResource
 metadata:
-  name: my-fluxhelmresource
+  name: fluxbyeworld
   namespace: flux
 spec:
+  chartgitpath: charts/byeworld
   customizations:
     - name: image
-      value: "{{ .Values.nginx.image }}"
+      value: quay.io/weaveworks/byeworld
       type: string
     - name: image-tag
-      value: "{{ .Values.nginx.image.version }}"
+      value: branch-a000001
       type: string
-status:
-  state: good
-  message: "Hello World"

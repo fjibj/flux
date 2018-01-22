@@ -34,10 +34,10 @@ import (
 	//"github.com/weaveworks/flux/integrations/helm/operator/operator"
 
 	clientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
-	"github.com/weaveworks/flux/integrations/helm/chart"
-	helmclient "github.com/weaveworks/flux/integrations/helm/client"
+	fluxhelm "github.com/weaveworks/flux/integrations/helm"
 	"github.com/weaveworks/flux/integrations/helm/operator"
 	"github.com/weaveworks/flux/ssh"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 )
@@ -67,7 +67,16 @@ var (
 	name       *string
 	listenAddr *string
 	gcInterval *time.Duration
+
+	ErrOperatorFailure = "Operator failure: %q"
 )
+
+type RevisionPatch struct {
+	Revision string
+}
+type StatusPatch struct {
+	Status RevisionPatch
+}
 
 func init() {
 	// Flags processing
@@ -99,13 +108,6 @@ func init() {
 	sshKeyBits = optionalVar(fs, &ssh.KeyBitsValue{}, "ssh-keygen-bitsintegrations/", "-b argument to ssh-keygen (default unspecified)")
 	sshKeyType = optionalVar(fs, &ssh.KeyTypeValue{}, "ssh-keygen-type", "-t argument to ssh-keygen (default unspecified)")
 
-}
-
-type RevisionPatch struct {
-	Revision string
-}
-type StatusPatch struct {
-	Status RevisionPatch
 }
 
 func main() {
@@ -141,147 +143,120 @@ func main() {
 	}()
 	// ----------------------------------------------------------------------
 
-	// Check if the FluxHelmResources exist in the cluster
-	//		later on add a check that the CRD itself exists and creat it if not
+	mainLogger := log.With(logger, "component", "helm-operator")
+	mainLogger.Log("info", "!!! I am functional! !!!")
 
-	logger.Log("component", "helm-operator", "info", "!!! I am functional! !!!")
+	/*
+		// Git repo info
+		gitRemoteConfig, err := flux.NewGitRemoteConfig(*gitURL, *gitBranch, *gitPath)
+		if err != nil {
+			logger.Log("err", err)
+			os.Exit(1)
+		}
+	*/
 
-	// get CRD clientset
-	//------------------
+	// ----------------------------------------------------------------------
 	// set up cluster configuration
 	cfg, err := clientcmd.BuildConfigFromFlags(*master, *kubeconfig)
 	if err != nil {
-		glog.Fatalf("Error building kubeconfig: %v", err)
+		mainLogger.Log("info", fmt.Sprintf("Error building kubeconfig: %v", err))
 	}
 
 	kubeClient, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
-		glog.Fatalf("Error building kubernetes clientset: %s", err.Error())
+		mainLogger.Log("error", fmt.Sprintf("Error building kubernetes clientset: %v", err))
+		errc <- fmt.Errorf("Error building kubernetes clientset: %v", err)
 	}
 
 	ts, err := kubeClient.CoreV1().Services("kube-system").Get("tiller-deploy", metav1.GetOptions{})
-	fmt.Printf("\n-------------\n>>> TILLER SERVICE ALL=%#v\n-------------\n", ts.Spec)
-
-	fmt.Printf("\n-------------\n>>> TILLER SERVICE IP=%#v\n-------------\n", ts.Spec.ClusterIP)
 	if err != nil {
-		panic(err)
+		mainLogger.Log("error", fmt.Sprintf("Tiller server error: %v", err))
+		errc <- fmt.Errorf("Tiller server error: %v", err)
 	}
 
-	ports := ts.Spec.Ports
-	fmt.Printf("\n-------------\n>>> TILLER SERVICE PORTS=%#v\n-------------\n", ports)
-
-	ip := ts.Spec.ClusterIP
-	//port := "44134"
+	tillerIP := ts.Spec.ClusterIP
+	mainLogger.Log("info", fmt.Sprintf("TILLER SERVICE IP=%#v\n", tillerIP))
 	port := ts.Spec.Ports[0].Port
-	fmt.Printf("\n-------------\n>>> TILLER SERVICE PORT=%#v\n-------------\n", port)
+	mainLogger.Log("info", fmt.Sprintf("TILLER SERVICE port=%#v\n", port))
 
-	opts := helmclient.Options{
-		IP:   ip,
+	opts := fluxhelm.Options{
+		IP:   tillerIP,
 		Port: fmt.Sprintf("%v", port),
 	}
 
-	hc, err := helmclient.New(kubeClient, opts)
+	//func New(logger log.Logger, kubeClient *kubernetes.Clientset, ifClient *ifclientset.Clientset, opts options) (*Release, error) {
+
+	hlm := fluxhelm.New(logger, opts)
 	if err != nil {
-		panic(err)
+		errc <- fmt.Errorf("Cannot create helm client: %v", err)
 	}
-
-	ch := chart.Chart{
-		Client: *hc,
-	}
-
-	ch.GetReleases()
-
-	/*
-		kss, err := kubeClient.CoreV1().Services("kube-system").List(metav1.ListOptions{})
-		if err != nil {
-			glog.Fatalf("Error getting services: %s", err.Error())
-		}
-		for i, s := range kss.Items {
-			fmt.Printf(">>> services: %d - %#v\n\n", i, s)
-		}
-	*/
+	hlm.GetTillerVersion()
 
 	ifClient, err := clientset.NewForConfig(cfg)
 	if err != nil {
 		glog.Fatalf("Error building integrations clientset: %v", err)
 	}
 
+	//---------------------------------------------------------------
+
 	//	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kube, time.Second*30)
 	ifInformerFactory := ifinformers.NewSharedInformerFactory(ifClient, time.Second*30)
 	go ifInformerFactory.Start(shutdown)
 
-	//	go func(logger log.Logger) {
-	//		for {
-	/*
-		// create CRD:
-		/*
-		A CRD manifest is loaded before helm-operator starts
-	*/
-	//n := 11111
-	for {
-		list, err := ifClient.IntegrationsV1().FluxHelmResources("kube-system").List(metav1.ListOptions{})
-		fmt.Printf("\n>>> FOUND %v items\n\n", len(list.Items))
-		if err != nil {
-			glog.Errorf("Error listing all fluxhelmresources: %v", err)
-			//time.Sleep(1 * time.Minute)
-			//continue
-			os.Exit(1)
-		}
+	chartSelector := map[string]string{
+		"chart": "charts_chart1",
+	}
+	labelsSet := labels.Set(chartSelector)
+	listOptions := metav1.ListOptions{LabelSelector: labelsSet.AsSelector().String()}
 
-		for _, fhr := range list.Items {
-			fmt.Println("=============== START OF PATCHING ================")
-			fmt.Println("-----------------------------------------------------")
-			fmt.Printf("fluxhelmresource %s:\n\n%#v\n", fhr.Name, fhr)
-			fmt.Println("-----------------------------------------------------")
-
-			fmt.Printf("fluxhelmresource %s for chart path %q and release name [%s] with customizations %#v\n", fhr.Name, fhr.Spec.ChartGitPath, fhr.Spec.ReleaseName, fhr.Spec.Customizations)
-
-			fmt.Printf("\t\t>>> found %v parameters\n", len(fhr.Spec.Customizations))
-
-			for _, cp := range fhr.Spec.Customizations {
-				fmt.Printf("\t\t * customization with \n\t\tname %q\n\t\tvalue %q\n", cp.Name, cp.Value)
-			}
-
-			/*
-				n = n + 10
-				statusPatch := StatusPatch{
-					Status: RevisionPatch{strconv.Itoa(n)},
-				}
-
-				data, err := json.Marshal(statusPatch)
-
-				fmt.Println(">>>> ", string(data), " <<<<")
-
-				if err != nil {
-					logger.Log("E R R O R", err.Error())
-				}
-				newFhr, err := ifClient.IntegrationsV1().FluxHelmResources("kube-system").Patch(fhr.Name, types.StrategicMergePatchType, data)
-				if err != nil {
-					logger.Log("E R R O R", err.Error())
-					continue
-				}
-				fmt.Printf("\t\tS U C C E S S - patched to %#v\n\n", newFhr)
-
-				fmt.Println("============== END OF PATCHING =================")
-			*/
-
-			time.Sleep(15 * time.Second)
-
-		}
-
-		time.Sleep(30 * time.Second)
+	//	for {
+	list, err := ifClient.IntegrationsV1().FluxHelmResources("kube-system").List(listOptions)
+	fmt.Printf("\n>>> FOUND %v items\n\n", len(list.Items))
+	if err != nil {
+		glog.Errorf("Error listing all fluxhelmresources: %v", err)
+		//time.Sleep(1 * time.Minute)
+		//continue
+		os.Exit(1)
 	}
 
-	//		}
-	//	}(log.With(logger, "fhr loop", "testing"))
+	//newFhr, err := ifClient.IntegrationsV1().FluxHelmResources("kube-system").Get(listOptions)
 
-	//
-	opr := operator.New(log.With(logger, "component", "helm-operator"), kubeClient, ifClient, ifInformerFactory)
+	for _, fhr := range list.Items {
+		fmt.Println("=============== START OF LABEL FILTERING ================")
+		fmt.Println("-----------------------------------------------------")
+		fmt.Printf("fluxhelmresource %s:\n\n%#v\n", fhr.Name, fhr)
+		fmt.Println("-----------------------------------------------------")
 
+		fmt.Printf("fluxhelmresource %s for chart path %q and release name [%s] with customizations %#v\n", fhr.Name, fhr.Spec.ChartGitPath, fhr.Spec.ReleaseName, fhr.Spec.Customizations)
+
+		fmt.Printf("\t\t>>> found %v parameters\n", len(fhr.Spec.Customizations))
+
+		for _, cp := range fhr.Spec.Customizations {
+			fmt.Printf("\t\t * customization with \n\t\tname %q\n\t\tvalue %q\n", cp.Name, cp.Value)
+		}
+
+		fmt.Println("-----------------------------------------------------")
+		for key, lb := range fhr.Labels {
+			fmt.Printf("\t\t*** label %s=%s\n", key, lb)
+		}
+		fmt.Println("-----------------------------------------------------")
+
+		for key, an := range fhr.Annotations {
+			fmt.Printf("\t\t+++ annotation %s=%s\n", key, an)
+		}
+		fmt.Println("-----------------------------------------------------")
+
+	}
+
+	// Wait to get the git repo URL
+
+	// Spin the Operator
+	opr := operator.New(log.With(logger, "component", "operator"), kubeClient, ifClient, ifInformerFactory)
 	if err = opr.Run(2, shutdown); err != nil {
-		glog.Fatalf("Error running controller: %s", err.Error())
+		msg := fmt.Sprintf("Failure to run controller: %s", err.Error())
+		logger.Log("error", msg)
+		errc <- fmt.Errorf(ErrOperatorFailure, err)
 	}
-
 }
 
 // Helper functions

@@ -61,8 +61,7 @@ type Controller struct {
 	// =============================================
 	fhrLister iflister.FluxHelmResourceLister
 
-	fhrSynced    cache.InformerSynced
-	chartsSynced cache.InformerSynced
+	fhrSynced cache.InformerSynced
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -70,6 +69,8 @@ type Controller struct {
 	// time, and makes it easy to ensure we are never processing the same item
 	// simultaneously in two different workers.
 	workqueue workqueue.RateLimitingInterface
+	//workqueueDoRelease     workqueue.RateLimitingInterface
+	//workqueueDeleteRelease workqueue.RateLimitingInterface
 	// recorder is an event recorder for recording Event resources to the
 	// Kubernetes API.
 	recorder record.EventRecorder
@@ -105,29 +106,31 @@ func New(
 		//deploymentsLister: deploymentInformer.Lister(),
 		//chartsSynced: deploymentInformer.Informer().HasSynced,
 		fhrLister: fhrInformer.Lister(),
-
 		fhrSynced: fhrInformer.Informer().HasSynced,
 
-		// TODO implement chartInformer to have chartInformer.Informer().HasSynced --------
-		chartsSynced: fhrInformer.Informer().HasSynced,
 		//---------------------------------------------------------------------------------
-		workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "FluxHelmResources"),
-		recorder:  recorder,
+		workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ChartRelease"),
+		//workqueueDoRelease:     workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "DoChartRelease"),
+		//workqueueDeleteRelease: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "DeleteChartRelease"),
+		recorder: recorder,
 	}
 
-	glog.Info("Setting up event handlers")
+	logger.Log("info", "Setting up event handlers")
 	// Set up an event handler for when FluxHelmResource resources change
 	fhrInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(new interface{}) {
-			fmt.Printf("\n>>> Adding a Chart\n")
+			fmt.Printf("\n>>> ADDING a Chart\n")
+			fmt.Printf("\t>>> new CRD: %v\n\n", new)
 			controller.enqueueFluxHelmResource(new)
 		},
 		UpdateFunc: func(old, new interface{}) {
-			fmt.Printf("\n>>> Updating a Chart\n")
+			fmt.Printf("\n>>> UPDATING a Chart\n")
+			fmt.Printf("\n\\t>>> updating CRD from \n--------\n%v\n   to   \n%v\n--------\n\n", old, new)
 			controller.enqueueFluxHelmResource(new)
 		},
 		DeleteFunc: func(old interface{}) {
-			fmt.Printf("\n>>> Deleting a Chart\n")
+			fmt.Printf("\n>>> DELETING a Chart\n")
+			fmt.Printf("\t>>> removing CRD: %v\n\n", old)
 			controller.deleteChart(old)
 		},
 	})
@@ -146,28 +149,23 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	defer runtime.HandleCrash()
 	defer c.workqueue.ShutDown()
 
-	glog.Info("********************************")
-	glog.Info("*** Starting helm-controller ***")
-	glog.Info("********************************")
-
-	// Start the informer factories to begin populating the informer caches
-
+	c.logger.Log("info", ">>> Starting operator <<<")
 	// Wait for the caches to be synced before starting workers
-	glog.Info("Waiting for informer caches to sync")
-	//	if ok := cache.WaitForCacheSync(stopCh, c.chartsSynced, c.fhrSynced); !ok {
+	c.logger.Log("info", "Waiting for informer caches to sync")
+
 	if ok := cache.WaitForCacheSync(stopCh, c.fhrSynced); !ok {
-		return fmt.Errorf("failed to wait for caches to sync")
+		return fmt.Errorf("ERROR", "failed to wait for caches to sync")
 	}
 
-	glog.Info("Starting workers")
+	c.logger.Log("info", "Starting workers")
 	// Launch two workers to process FluxHelmResource resources
 	for i := 0; i < threadiness; i++ {
 		go wait.Until(c.runWorker, time.Second, stopCh)
 	}
 
-	glog.Info("Started workers")
+	c.logger.Log("info", "Start workers")
 	<-stopCh
-	glog.Info("Shutting down workers")
+	c.logger.Log("info", "Stopping workers")
 
 	return nil
 }
@@ -192,7 +190,7 @@ func (c *Controller) processNextWorkItem() bool {
 	// We wrap this block in a func so we can defer c.workqueue.Done.
 	err := func(obj interface{}) error {
 		// We call Done here so the workqueue knows we have finished
-		// processing this item. We also must remember to call Forget if we
+		// processing this item. We must call Forget if we
 		// do not want this work item being re-queued. For example, we do
 		// not call Forget if a transient error occurs, instead the item is
 		// put back on the workqueue and attempted again after a back-off
@@ -201,7 +199,7 @@ func (c *Controller) processNextWorkItem() bool {
 		var key string
 		var ok bool
 		// We expect strings to come off the workqueue. These are of the
-		// form namespace/name. We do this as the delayed nature of the
+		// form "namespace/fhr name". We do this as the delayed nature of the
 		// workqueue means the items in the informer cache may actually be
 		// more up to date than when the item was initially put onto the
 		// workqueue.
@@ -221,7 +219,7 @@ func (c *Controller) processNextWorkItem() bool {
 		// Finally, if no error occurs we Forget this item so it does not
 		// get queued again until another change happens.
 		c.workqueue.Forget(obj)
-		glog.Infof("Successfully synced '%s'", key)
+		glog.Infof("\t\t *** Successfully synced '%s'", key)
 		fmt.Printf("$$$$$ WORK QUEUE length: %d\n\n", c.workqueue.Len())
 		return nil
 	}(obj)

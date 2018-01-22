@@ -1,9 +1,10 @@
 apiVersion: integrations.flux/v1
 kind: FluxHelmResource
 metadata:
-  name: my-fluxhelmresource2
+  name: kubesystemmongo
   namespace: kube-system
 spec:
+  chartgitpath: charts/mongo
   customizations:
     - name: image
       value: quay.io/weaveworks/helloworld
@@ -13,4 +14,4 @@ spec:
       type: string
     - name: param1
       value: "102"
-      type: integer
+      type: int

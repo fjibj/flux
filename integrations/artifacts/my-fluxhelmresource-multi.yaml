@@ -5,9 +5,9 @@
     name: kubesystemhelloworld
     namespace: kube-system
     labels:
-      chart: charts_chart1
+      chart: charts_helloworld
   spec:
-    chartgitpath: charts/chart1
+    chartgitpath: charts/helloworld
     customizations:
       - name: image
         value: quay.io/weaveworks/helloworld
@@ -24,15 +24,13 @@
     name: kubesystembyeworld
     namespace: kube-system
     labels:
-      chart: charts_chart2
+      chart: charts_byeworld
   spec:
-    chartgitpath: charts/chart2
+    chartgitpath: charts/byeworld
     customizations:
       - name: image
-        value: quay.io/weaveworks/byeworld
+        value: quay.io/tamara/byeworld:master-a000003
         type: string
-      - name: image-tag
-        value: master-a000032
       - name: param1
         value: fake3
         type: string

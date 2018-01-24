@@ -1,6 +1,9 @@
 package operator
 
 import (
+	"bytes"
+	"encoding/base64"
+	"encoding/gob"
 	"fmt"
 	"strings"
 	"time"
@@ -68,9 +71,9 @@ type Controller struct {
 	// means we can ensure we only process a fixed amount of resources at a
 	// time, and makes it easy to ensure we are never processing the same item
 	// simultaneously in two different workers.
-	workqueue workqueue.RateLimitingInterface
-	//workqueueDoRelease     workqueue.RateLimitingInterface
-	//workqueueDeleteRelease workqueue.RateLimitingInterface
+	workqueueCreate workqueue.RateLimitingInterface
+	workqueueUpdate workqueue.RateLimitingInterface
+	workqueueDelete workqueue.RateLimitingInterface
 	// recorder is an event recorder for recording Event resources to the
 	// Kubernetes API.
 	recorder record.EventRecorder
@@ -109,29 +112,53 @@ func New(
 		fhrSynced: fhrInformer.Informer().HasSynced,
 
 		//---------------------------------------------------------------------------------
-		workqueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ChartRelease"),
-		//workqueueDoRelease:     workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "DoChartRelease"),
-		//workqueueDeleteRelease: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "DeleteChartRelease"),
-		recorder: recorder,
+		workqueueCreate: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ChartReleaseCreate"),
+		workqueueUpdate: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ChartReleaseUpdate"),
+		workqueueDelete: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ChartReleaseDelete"),
+		recorder:        recorder,
 	}
 
-	logger.Log("info", "Setting up event handlers")
+	fmt.Println("===> Setting up event handlers")
+	controller.logger.Log("info", "Setting up event handlers")
+
 	// Set up an event handler for when FluxHelmResource resources change
 	fhrInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(new interface{}) {
 			fmt.Printf("\n>>> ADDING a Chart\n")
 			fmt.Printf("\t>>> new CRD: %v\n\n", new)
-			controller.enqueueFluxHelmResource(new)
+			controller.enqueue(new, "C")
 		},
 		UpdateFunc: func(old, new interface{}) {
-			fmt.Printf("\n>>> UPDATING a Chart\n")
-			fmt.Printf("\n\\t>>> updating CRD from \n--------\n%v\n   to   \n%v\n--------\n\n", old, new)
-			controller.enqueueFluxHelmResource(new)
+
+			old, _ = old.(ifv1.FluxHelmResource)
+			new, _ = new.(ifv1.FluxHelmResource)
+			// if not the same
+			fmt.Printf("\n?????????????????????????\ndeciding if to UPDATE a Chart at %s\n", time.Now().String())
+
+			oldBase64, err := serializeToBase64(old.(ifv1.FluxHelmResource))
+			if err != nil {
+				panic(err)
+			}
+			newBase64, err := serializeToBase64(new.(ifv1.FluxHelmResource))
+			if err != nil {
+				panic(err)
+			}
+
+			fmt.Printf("old: %#v\n\n", oldBase64)
+			fmt.Printf("new: %#v\n\n", newBase64)
+
+			if newBase64 != oldBase64 {
+				fmt.Println("===========================>")
+				fmt.Printf("\n>>> UPDATING a Chart\n")
+				fmt.Printf("\n\\t>>> updating CRD from \n--------\n%v\n   to   \n%v\n--------\n\n", old, new)
+				fmt.Println("<==========================>")
+				controller.enqueue(new, "U")
+			}
 		},
 		DeleteFunc: func(old interface{}) {
 			fmt.Printf("\n>>> DELETING a Chart\n")
 			fmt.Printf("\t>>> removing CRD: %v\n\n", old)
-			controller.deleteChart(old)
+			controller.enqueue(old, "D")
 		},
 	})
 
@@ -147,55 +174,90 @@ func New(
 // workers to finish processing their current work items.
 func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	defer runtime.HandleCrash()
-	defer c.workqueue.ShutDown()
+	defer c.workqueueCreate.ShutDown()
+	defer c.workqueueUpdate.ShutDown()
+	defer c.workqueueDelete.ShutDown()
 
 	c.logger.Log("info", ">>> Starting operator <<<")
 	// Wait for the caches to be synced before starting workers
 	c.logger.Log("info", "Waiting for informer caches to sync")
 
 	if ok := cache.WaitForCacheSync(stopCh, c.fhrSynced); !ok {
-		return fmt.Errorf("ERROR", "failed to wait for caches to sync")
+		return fmt.Errorf("error: %s", "failed to wait for caches to sync")
 	}
 
-	c.logger.Log("info", "Starting workers")
+	c.logger.Log("info", "=== Starting workers ===")
 	// Launch two workers to process FluxHelmResource resources
 	for i := 0; i < threadiness; i++ {
-		go wait.Until(c.runWorker, time.Second, stopCh)
+		go wait.Until(c.runCreateWorker, time.Second, stopCh)
+		go wait.Until(c.runUpdateWorker, time.Second, stopCh)
+		go wait.Until(c.runDeleteWorker, time.Second, stopCh)
 	}
 
-	c.logger.Log("info", "Start workers")
 	<-stopCh
-	c.logger.Log("info", "Stopping workers")
+	c.logger.Log("info", "=== Stopping workers ===")
 
 	return nil
 }
 
-// runWorker is a long-running function that will continually call the
+func serializeToBase64(obj ifv1.FluxHelmResource) (string, error) {
+	b := bytes.Buffer{}
+	err := gob.NewEncoder(&b).Encode(obj)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(b.Bytes()), nil
+}
+
+// runXWorker is a long-running function that will continually call the
 // processNextWorkItem function in order to read and process a message on the
-// workqueue.
-func (c *Controller) runWorker() {
-	for c.processNextWorkItem() {
+// specific workqueue.
+func (c *Controller) runCreateWorker() {
+	for c.processNextWorkItem("C") {
+	}
+}
+func (c *Controller) runUpdateWorker() {
+	for c.processNextWorkItem("U") {
+	}
+}
+func (c *Controller) runDeleteWorker() {
+	for c.processNextWorkItem("D") {
 	}
 }
 
 // processNextWorkItem will read a single work item off the workqueue and
 // attempt to process it, by calling the syncHandler.
-func (c *Controller) processNextWorkItem() bool {
-	obj, shutdown := c.workqueue.Get()
+func (c *Controller) processNextWorkItem(action string) bool {
+	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+	c.logger.Log("info", fmt.Sprintf("!!! in processNextWorkItem: [ACTION %#v]", action))
+
+	var wq workqueue.RateLimitingInterface
+	switch action {
+	case "C":
+		wq = c.workqueueCreate
+	case "U":
+		wq = c.workqueueUpdate
+	case "D":
+		wq = c.workqueueDelete
+	}
+
+	obj, shutdown := wq.Get()
+	c.logger.Log("info", fmt.Sprintf("\t\t\t---> processing item %#v]\n", obj))
 
 	if shutdown {
 		return false
 	}
 
 	// We wrap this block in a func so we can defer c.workqueue.Done.
-	err := func(obj interface{}) error {
+	err := func(obj interface{}, action string) error {
 		// We call Done here so the workqueue knows we have finished
 		// processing this item. We must call Forget if we
 		// do not want this work item being re-queued. For example, we do
 		// not call Forget if a transient error occurs, instead the item is
 		// put back on the workqueue and attempted again after a back-off
 		// period.
-		defer c.workqueue.Done(obj)
+		defer wq.Done(obj)
+
 		var key string
 		var ok bool
 		// We expect strings to come off the workqueue. These are of the
@@ -207,34 +269,47 @@ func (c *Controller) processNextWorkItem() bool {
 			// As the item in the workqueue is actually invalid, we call
 			// Forget here else we'd go into a loop of attempting to
 			// process a work item that is invalid.
-			c.workqueue.Forget(obj)
+			wq.Forget(obj)
 			runtime.HandleError(fmt.Errorf("expected string in workqueue but got %#v", obj))
 			return nil
 		}
 		// Run the syncHandler, passing it the namespace/name string of the
 		// FluxHelmResource resource to be synced.
-		if err := c.syncHandler(key); err != nil {
+		// If the sync failed, then we return while the item will get requeued
+		if err := c.syncHandler(key, action); err != nil {
 			return fmt.Errorf("error syncing '%s': %s", key, err.Error())
 		}
 		// Finally, if no error occurs we Forget this item so it does not
 		// get queued again until another change happens.
-		c.workqueue.Forget(obj)
-		glog.Infof("\t\t *** Successfully synced '%s'", key)
-		fmt.Printf("$$$$$ WORK QUEUE length: %d\n\n", c.workqueue.Len())
+		wq.Forget(obj)
+		c.logger.Log("info", fmt.Sprintf("\t\t *** Successfully synced '%s'", key))
+		c.logger.Log("info", fmt.Sprintf("$$$$$ WORK QUEUE\n---\n%#v\n---\nlength: %d\n\n", wq, wq.Len()))
+		c.logger.Log("info", "... still here 1")
+
 		return nil
-	}(obj)
+	}(obj, action)
+
+	c.logger.Log("info", "... still here 2")
+	fmt.Println("X~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n")
 
 	if err != nil {
+		c.logger.Log("CRASH", fmt.Sprintf("\t\t *** %#v", err))
+
 		runtime.HandleError(err)
+		c.logger.Log("info", "... still here 3")
 		return true
 	}
+	c.logger.Log("info", "... still here 4")
+	fmt.Println("X+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++\n")
 
 	return true
 }
 
-// syncHandler compares the actual state with the desired, and attempts to
+// syncHandler acts according to the action
 //------------------------------------------------------------------------
-func (c *Controller) syncHandler(key string) error {
+func (c *Controller) syncHandler(key string, action string) error {
+	c.logger.Log("info", fmt.Sprintf("!!! in syncHandler - for action %s", action))
+
 	// Convert the namespace/name string into a distinct namespace and name
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
@@ -316,27 +391,41 @@ func (c *Controller) updateFluxHelmResourceStatus(fhr *ifv1.FluxHelmResource, de
 }
 
 func getCacheKey(obj interface{}) (string, error) {
+	fmt.Println("=== in getCacheKey ===")
+
 	var key string
 	var err error
 	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
 		runtime.HandleError(err)
+		fmt.Printf("*** ERROR %#v\n", err)
 		return "", err
 	}
-	fmt.Printf("*** Cache key is %s\n", key)
-
 	return key, nil
 }
 
 // enqueueFluxHelmResource takes a FluxHelmResource resource and converts it into a namespace/name
 // string which is then put onto the work queue. This method should not be
 // passed resources of any type other than FluxHelmResource.
-func (c *Controller) enqueueFluxHelmResource(obj interface{}) {
+func (c *Controller) enqueue(obj interface{}, action string) {
+	fmt.Printf("=== in enqueue for %s ===\n", action)
+
 	var key string
 	var err error
 	if key, err = getCacheKey(obj); err != nil {
 		return
 	}
-	c.workqueue.AddRateLimited(key)
+	fmt.Printf("*** Cache key is %s\n", key)
+
+	var wq workqueue.RateLimitingInterface
+	switch action {
+	case "C":
+		wq = c.workqueueCreate
+	case "U":
+		wq = c.workqueueUpdate
+	case "D":
+		wq = c.workqueueDelete
+	}
+	wq.AddRateLimited(key)
 }
 
 func (c *Controller) deleteChart(obj interface{}) error {

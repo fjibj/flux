@@ -64,6 +64,9 @@ var (
 	sshKeyBits               ssh.OptionalValue
 	sshKeyType               ssh.OptionalValue
 
+	upstreamURL *string
+	token       *string
+
 	name       *string
 	listenAddr *string
 	gcInterval *time.Duration
@@ -108,6 +111,8 @@ func init() {
 	sshKeyBits = optionalVar(fs, &ssh.KeyBitsValue{}, "ssh-keygen-bitsintegrations/", "-b argument to ssh-keygen (default unspecified)")
 	sshKeyType = optionalVar(fs, &ssh.KeyTypeValue{}, "ssh-keygen-type", "-t argument to ssh-keygen (default unspecified)")
 
+	upstreamURL = fs.String("connect", "", "Connect to an upstream service e.g., Weave Cloud, at this base address")
+	token = fs.String("token", "", "Authentication token for upstream service")
 }
 
 func main() {
@@ -184,8 +189,6 @@ func main() {
 		Port: fmt.Sprintf("%v", port),
 	}
 
-	//func New(logger log.Logger, kubeClient *kubernetes.Clientset, ifClient *ifclientset.Clientset, opts options) (*Release, error) {
-
 	hlm := fluxhelm.New(logger, opts)
 	if err != nil {
 		errc <- fmt.Errorf("Cannot create helm client: %v", err)
@@ -196,20 +199,13 @@ func main() {
 	if err != nil {
 		glog.Fatalf("Error building integrations clientset: %v", err)
 	}
-
-	//---------------------------------------------------------------
-
-	//	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kube, time.Second*30)
-	ifInformerFactory := ifinformers.NewSharedInformerFactory(ifClient, time.Second*30)
-	go ifInformerFactory.Start(shutdown)
-
+	// ----------------------------------------------------------------------
 	chartSelector := map[string]string{
 		"chart": "charts_chart1",
 	}
 	labelsSet := labels.Set(chartSelector)
 	listOptions := metav1.ListOptions{LabelSelector: labelsSet.AsSelector().String()}
 
-	//	for {
 	list, err := ifClient.IntegrationsV1().FluxHelmResources("kube-system").List(listOptions)
 	fmt.Printf("\n>>> FOUND %v items\n\n", len(list.Items))
 	if err != nil {
@@ -218,8 +214,6 @@ func main() {
 		//continue
 		os.Exit(1)
 	}
-
-	//newFhr, err := ifClient.IntegrationsV1().FluxHelmResources("kube-system").Get(listOptions)
 
 	for _, fhr := range list.Items {
 		fmt.Println("=============== START OF LABEL FILTERING ================")
@@ -247,10 +241,15 @@ func main() {
 		fmt.Println("-----------------------------------------------------")
 
 	}
+	//---------------------------------------------------------------
+
+	//	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
+	ifInformerFactory := ifinformers.NewSharedInformerFactory(ifClient, time.Second*30)
+	go ifInformerFactory.Start(shutdown)
 
 	// Wait to get the git repo URL
 
-	// Spin the Operator
+	// Spin up the Operator
 	opr := operator.New(log.With(logger, "component", "operator"), kubeClient, ifClient, ifInformerFactory)
 	if err = opr.Run(2, shutdown); err != nil {
 		msg := fmt.Sprintf("Failure to run controller: %s", err.Error())

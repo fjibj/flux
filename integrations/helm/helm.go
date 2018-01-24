@@ -12,8 +12,10 @@ type Options struct {
 	IP   string
 	Port string
 }
+
+// Helm struct provides access to helm client
 type Helm struct {
-	logger log.Logger
+	Logger log.Logger
 	Host   string
 	*k8shelm.Client
 }
@@ -34,22 +36,23 @@ func New(logger log.Logger, opts Options) *Helm {
 	cl := k8shelm.NewClient(k8shelm.Host(host))
 
 	return &Helm{
-		logger: log.With(logger, "component", "helm"),
+		Logger: log.With(logger, "component", "helm"),
 		Host:   host,
 		Client: cl,
 	}
 }
 
+// GetTillerVersion retrieves tiller version
 func (helm Helm) GetTillerVersion() (string, error) {
 	var v *rls.GetVersionResponse
 	var err error
 	voption := k8shelm.VersionOption(k8shelm.Host(helm.Host))
 	if v, err = helm.Client.GetVersion(voption); err == nil {
-		helm.logger.Log("error", err)
+		helm.Logger.Log("error", err)
 		return "", fmt.Errorf("error getting tiller version: %v", err)
 	}
 
-	helm.logger.Log("info", fmt.Sprintf("Tiller version is: [%#v]\n", v.GetVersion()))
+	helm.Logger.Log("info", fmt.Sprintf("Tiller version is: [%#v]\n", v.GetVersion()))
 
 	return v.GetVersion().String(), nil
 }

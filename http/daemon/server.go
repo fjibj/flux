@@ -9,11 +9,11 @@ import (
 	stdprometheus "github.com/prometheus/client_golang/prometheus"
 	"github.com/weaveworks/common/middleware"
 
+	"github.com/weaveworks/flux/api"
 	transport "github.com/weaveworks/flux/http"
 	"github.com/weaveworks/flux/image"
 	"github.com/weaveworks/flux/job"
 	fluxmetrics "github.com/weaveworks/flux/metrics"
-	"github.com/weaveworks/flux/remote"
 	"github.com/weaveworks/flux/update"
 )
 
@@ -45,8 +45,8 @@ func NewRouter() *mux.Router {
 	return r
 }
 
-func NewHandler(d remote.Platform, r *mux.Router) http.Handler {
-	handle := HTTPServer{d}
+func NewHandler(s api.Server, r *mux.Router) http.Handler {
+	handle := HTTPServer{s}
 	r.Get("JobStatus").HandlerFunc(handle.JobStatus)
 	r.Get("SyncStatus").HandlerFunc(handle.SyncStatus)
 	r.Get("UpdateManifests").HandlerFunc(handle.UpdateManifests)
@@ -65,14 +65,14 @@ func NewHandler(d remote.Platform, r *mux.Router) http.Handler {
 }
 
 type HTTPServer struct {
-	daemon remote.Platform
+	server api.Server
 }
 
 func (s HTTPServer) GitPushHook(w http.ResponseWriter, r *http.Request) {
 	repo := mux.Vars(r)["repo"]
-	err := s.daemon.NotifyChange(r.Context(), remote.Change{
-		Kind:   remote.GitChange,
-		Source: remote.GitUpdate{URL: repo},
+	err := s.server.NotifyChange(r.Context(), api.Change{
+		Kind:   api.GitChange,
+		Source: api.GitUpdate{URL: repo},
 	})
 	if err != nil {
 		transport.ErrorResponse(w, r, err)
@@ -86,9 +86,9 @@ func (s HTTPServer) ImagePushHook(w http.ResponseWriter, r *http.Request) {
 	nameString := mux.Vars(r)["name"]
 	ref, err := image.ParseRef(nameString)
 	if err == nil {
-		err = s.daemon.NotifyChange(r.Context(), remote.Change{
-			Kind:   remote.ImageChange,
-			Source: remote.ImageUpdate{Name: ref.Name},
+		err = s.server.NotifyChange(r.Context(), api.Change{
+			Kind:   api.ImageChange,
+			Source: api.ImageUpdate{Name: ref.Name},
 		})
 	}
 	if err != nil {
@@ -101,7 +101,7 @@ func (s HTTPServer) ImagePushHook(w http.ResponseWriter, r *http.Request) {
 
 func (s HTTPServer) JobStatus(w http.ResponseWriter, r *http.Request) {
 	id := job.ID(mux.Vars(r)["id"])
-	status, err := s.daemon.JobStatus(r.Context(), id)
+	status, err := s.server.JobStatus(r.Context(), id)
 	if err != nil {
 		transport.ErrorResponse(w, r, err)
 		return
@@ -111,7 +111,7 @@ func (s HTTPServer) JobStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s HTTPServer) SyncStatus(w http.ResponseWriter, r *http.Request) {
 	ref := mux.Vars(r)["ref"]
-	commits, err := s.daemon.SyncStatus(r.Context(), ref)
+	commits, err := s.server.SyncStatus(r.Context(), ref)
 	if err != nil {
 		transport.ErrorResponse(w, r, err)
 		return
@@ -127,7 +127,7 @@ func (s HTTPServer) ListImages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	d, err := s.daemon.ListImages(r.Context(), spec)
+	d, err := s.server.ListImages(r.Context(), spec)
 	if err != nil {
 		transport.ErrorResponse(w, r, err)
 		return
@@ -142,7 +142,7 @@ func (s HTTPServer) UpdateManifests(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jobID, err := s.daemon.UpdateManifests(r.Context(), spec)
+	jobID, err := s.server.UpdateManifests(r.Context(), spec)
 	if err != nil {
 		transport.ErrorResponse(w, r, err)
 		return
@@ -152,7 +152,7 @@ func (s HTTPServer) UpdateManifests(w http.ResponseWriter, r *http.Request) {
 
 func (s HTTPServer) ListServices(w http.ResponseWriter, r *http.Request) {
 	namespace := mux.Vars(r)["namespace"]
-	res, err := s.daemon.ListServices(r.Context(), namespace)
+	res, err := s.server.ListServices(r.Context(), namespace)
 	if err != nil {
 		transport.ErrorResponse(w, r, err)
 		return
@@ -161,7 +161,7 @@ func (s HTTPServer) ListServices(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s HTTPServer) Export(w http.ResponseWriter, r *http.Request) {
-	status, err := s.daemon.Export(r.Context())
+	status, err := s.server.Export(r.Context())
 	if err != nil {
 		transport.ErrorResponse(w, r, err)
 		return
@@ -175,7 +175,7 @@ func (s HTTPServer) GitRepoConfig(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewDecoder(r.Body).Decode(&regenerate); err != nil {
 		transport.WriteError(w, r, http.StatusBadRequest, err)
 	}
-	res, err := s.daemon.GitRepoConfig(r.Context(), regenerate)
+	res, err := s.server.GitRepoConfig(r.Context(), regenerate)
 	if err != nil {
 		transport.ErrorResponse(w, r, err)
 	}

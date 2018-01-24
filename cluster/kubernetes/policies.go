@@ -103,45 +103,8 @@ func updateAnnotations(def []byte, tagAll string, f func(map[string]string) map[
 	return []byte(newDef), err
 }
 
-type Manifest struct {
-	Metadata Metadata `yaml:"metadata"`
-	Spec     struct {
-		Template struct {
-			Spec struct {
-				Containers []Container `yaml:"containers"`
-			} `yaml:"spec"`
-		} `yaml:"template"`
-		JobTemplate struct {
-			Spec struct {
-				Template struct {
-					Spec struct {
-						Containers []Container `yaml:"containers"`
-					} `yaml:"spec"`
-				} `yaml:"template"`
-			} `yaml:"spec"`
-		} `yaml:"jobTemplate"`
-	} `yaml:"spec"`
-}
-
-func (m Metadata) AnnotationsOrNil() map[string]string {
-	if m.Annotations == nil {
-		return map[string]string{}
-	}
-	return m.Annotations
-}
-
-type Metadata struct {
-	Name        string            `yaml:"name"`
-	Annotations map[string]string `yaml:"annotations"`
-}
-
-type Container struct {
-	Name  string `yaml:"name"`
-	Image string `yaml:"image"`
-}
-
-func parseManifest(def []byte) (Manifest, error) {
-	var m Manifest
+func parseManifest(def []byte) (resource.BaseObject, error) {
+	var m resource.BaseObject
 	if err := yaml.Unmarshal(def, &m); err != nil {
 		return m, errors.Wrap(err, "decoding annotations")
 	}
@@ -155,7 +118,7 @@ func (m *Manifests) ServicesWithPolicies(root string) (policy.ResourceMap, error
 	}
 
 	result := map[flux.ResourceID]policy.Set{}
-	err = iterateManifests(all, func(s flux.ResourceID, m Manifest) error {
+	err = iterateManifests(all, func(s flux.ResourceID, m resource.BaseObject) error {
 		ps, err := policiesFrom(m)
 		if err != nil {
 			return err
@@ -169,7 +132,7 @@ func (m *Manifests) ServicesWithPolicies(root string) (policy.ResourceMap, error
 	return result, nil
 }
 
-func iterateManifests(services map[flux.ResourceID][]string, f func(flux.ResourceID, Manifest) error) error {
+func iterateManifests(services map[flux.ResourceID][]string, f func(flux.ResourceID, resource.BaseObject) error) error {
 	for serviceID, paths := range services {
 		if len(paths) != 1 {
 			continue
@@ -191,7 +154,7 @@ func iterateManifests(services map[flux.ResourceID][]string, f func(flux.Resourc
 	return nil
 }
 
-func policiesFrom(m Manifest) (policy.Set, error) {
+func policiesFrom(m resource.BaseObject) (policy.Set, error) {
 	var policies policy.Set
 	for k, v := range m.Metadata.AnnotationsOrNil() {
 		if !strings.HasPrefix(k, resource.PolicyPrefix) {

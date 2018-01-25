@@ -1,8 +1,8 @@
 apiVersion: integrations.flux/v1
 kind: FluxHelmResource
 metadata:
-  name: fluxbyeworld
-  namespace: flux
+  name: defaultbyeworld
+  namespace: default
 spec:
   chartgitpath: charts/byeworld
   customizations:
@@ -10,5 +10,5 @@ spec:
       value: quay.io/weaveworks/byeworld
       type: string
     - name: image-tag
-      value: branch-a000001
+      value: branch-a000003
       type: string

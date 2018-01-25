@@ -184,7 +184,7 @@ func main() {
 	port := ts.Spec.Ports[0].Port
 	mainLogger.Log("info", fmt.Sprintf("TILLER SERVICE port=%#v\n", port))
 
-	opts := fluxhelm.Options{
+	opts := fluxhelm.TillerOptions{
 		IP:   tillerIP,
 		Port: fmt.Sprintf("%v", port),
 	}
@@ -201,7 +201,7 @@ func main() {
 	}
 	// ----------------------------------------------------------------------
 	chartSelector := map[string]string{
-		"chart": "charts_chart1",
+		"chart": "charts_helloworld",
 	}
 	labelsSet := labels.Set(chartSelector)
 	listOptions := metav1.ListOptions{LabelSelector: labelsSet.AsSelector().String()}

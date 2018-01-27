@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	ifv1 "github.com/weaveworks/flux/apis/integrations.flux/v1"
 	gogit "gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing"
-	yaml "gopkg.in/yaml.v2"
 )
 
 const (
@@ -92,6 +90,9 @@ func (ch *Checkout) CloneAndCheckout(ctx context.Context) error {
 
 // Cleanup removes the temp repo directory
 func (ch *Checkout) Cleanup() {
+	ch.Lock()
+	defer ch.Unlock()
+
 	if ch.Dir != "" {
 		os.Remove(ch.Dir)
 	}
@@ -105,6 +106,9 @@ func (ch *Checkout) Cleanup() {
 // Among suppplied custom resources it finds the ones whose revision is different
 // Charts related to these custom resources need to be released
 func (ch *Checkout) ChangedCharts(crs []ifv1.FluxHelmResource) ([]ifv1.FluxHelmResource, error) {
+	ch.Lock()
+	defer ch.Unlock()
+
 	if err := ch.pull(); err != nil {
 		return nil, err
 	}
@@ -135,6 +139,7 @@ func (ch *Checkout) pull() error {
 	return err
 }
 
+/*
 // getRevision returns string representation of the revision hash
 func (ch *Checkout) getRevision() (string, error) {
 	if ch.repo == nil {
@@ -171,3 +176,4 @@ func (ch *Checkout) getChartVersion(chartDir string) (string, error) {
 
 	return chm.Version, nil
 }
+*/

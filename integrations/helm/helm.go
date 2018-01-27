@@ -41,7 +41,6 @@ func (helm Helm) GetTillerVersion() (string, error) {
 		helm.logger.Log("error", err)
 		return "", fmt.Errorf("error getting tiller version: %v", err)
 	}
-
 	helm.logger.Log("info", fmt.Sprintf("Tiller version is: [%#v]\n", v.GetVersion()))
 
 	return v.GetVersion().String(), nil

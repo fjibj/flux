@@ -36,6 +36,7 @@ import (
 	clientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
 	fluxhelm "github.com/weaveworks/flux/integrations/helm"
 	"github.com/weaveworks/flux/integrations/helm/operator"
+	"github.com/weaveworks/flux/integrations/helm/release"
 	"github.com/weaveworks/flux/ssh"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
@@ -56,7 +57,8 @@ var (
 	customKubectl *string
 	gitURL        *string
 	gitBranch     *string
-	gitPath       *string
+	gitConfigPath *string
+	gitChartsPath *string
 
 	k8sSecretName            *string
 	k8sSecretVolumeMountPath *string
@@ -101,7 +103,8 @@ func init() {
 	customKubectl = fs.String("kubernetes-kubectl", "", "Optional, explicit path to kubectl tool")
 	gitURL = fs.String("git-url", "", "URL of git repo with Kubernetes manifests; e.g., git@github.com:weaveworks/flux-example")
 	gitBranch = fs.String("git-branch", "master", "branch of git repo to use for Kubernetes manifests")
-	gitPath = fs.String("git-path", "", "path within git repo to locate Kubernetes manifests (relative path)")
+	gitConfigPath = fs.String("git-config-path", "config", "path within git repo to locate Custom Resource Kubernetes manifests (relative path)")
+	gitChartsPath = fs.String("git-charts-path", "charts", "path within git repo to locate Helm Charts (relative path)")
 
 	// k8s-secret backed ssh keyring configuration
 	k8sSecretName = fs.String("k8s-secret-name", "flux-git-deploy", "Name of the k8s secret used to store the private SSH key")
@@ -173,27 +176,50 @@ func main() {
 		errc <- fmt.Errorf("Error building kubernetes clientset: %v", err)
 	}
 
-	ts, err := kubeClient.CoreV1().Services("kube-system").Get("tiller-deploy", metav1.GetOptions{})
+	/*
+		ts, err := kubeClient.CoreV1().Services("kube-system").Get("tiller-deploy", metav1.GetOptions{})
+		if err != nil {
+			mainLogger.Log("error", fmt.Sprintf("Tiller server error: %v", err))
+			errc <- fmt.Errorf("Tiller server error: %v", err)
+		}
+
+		tillerIP := ts.Spec.ClusterIP
+		mainLogger.Log("info", fmt.Sprintf("TILLER SERVICE IP=%#v\n", tillerIP))
+		port := ts.Spec.Ports[0].Port
+		mainLogger.Log("info", fmt.Sprintf("TILLER SERVICE port=%#v\n", port))
+
+		opts := fluxhelm.TillerOptions{
+			IP:   tillerIP,
+			Port: fmt.Sprintf("%v", port),
+		}
+
+		hlm := fluxhelm.New(logger, opts)
+		if err != nil {
+			errc <- fmt.Errorf("Cannot create helm client: %v", err)
+		}
+		hlm.GetTillerVersion()
+	*/
+
+	hlm, err := setUpHelmClient(kubeClient)
 	if err != nil {
-		mainLogger.Log("error", fmt.Sprintf("Tiller server error: %v", err))
-		errc <- fmt.Errorf("Tiller server error: %v", err)
-	}
-
-	tillerIP := ts.Spec.ClusterIP
-	mainLogger.Log("info", fmt.Sprintf("TILLER SERVICE IP=%#v\n", tillerIP))
-	port := ts.Spec.Ports[0].Port
-	mainLogger.Log("info", fmt.Sprintf("TILLER SERVICE port=%#v\n", port))
-
-	opts := fluxhelm.TillerOptions{
-		IP:   tillerIP,
-		Port: fmt.Sprintf("%v", port),
-	}
-
-	hlm := fluxhelm.New(logger, opts)
-	if err != nil {
-		errc <- fmt.Errorf("Cannot create helm client: %v", err)
+		errc <- mainLogger.Log("error", err.Error())
 	}
 	hlm.GetTillerVersion()
+	res, err := hlm.Client.ListReleases(
+	//k8shelm.ReleaseListLimit(10),
+	//k8shelm.ReleaseListOffset(l.offset),
+	//k8shelm.ReleaseListFilter(l.filter),
+	//k8shelm.ReleaseListSort(int32(sortBy)),
+	//k8shelm.ReleaseListOrder(int32(sortOrder)),
+	//k8shelm.ReleaseListStatuses(stats),
+	//k8shelm.ReleaseListNamespace(l.namespace),
+	)
+
+	count := res.GetTotal()
+	fmt.Printf("\t\t*** number of helm RELEASES - %d\n", count)
+	for _, rls := range res.GetReleases() {
+		fmt.Printf("\t\t*** RELEASE %#v\n\t\t\t%#v\n", rls.GetName(), rls.GetInfo())
+	}
 
 	ifClient, err := clientset.NewForConfig(cfg)
 	if err != nil {
@@ -242,24 +268,45 @@ func main() {
 
 	}
 	//---------------------------------------------------------------
-
-	//	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, time.Second*30)
 	ifInformerFactory := ifinformers.NewSharedInformerFactory(ifClient, time.Second*30)
 	go ifInformerFactory.Start(shutdown)
 
-	// Wait to get the git repo URL
-
-	// Spin up the Operator
-	opr := operator.New(log.With(logger, "component", "operator"), kubeClient, ifClient, ifInformerFactory)
+	// ---------- Spin up the Operator ----------
+	rel := release.New(log.With(logger, "component", "release"), hlm.Client)
+	opr := operator.New(log.With(logger, "component", "operator"), kubeClient, ifClient, ifInformerFactory, rel)
 	if err = opr.Run(2, shutdown); err != nil {
 		msg := fmt.Sprintf("Failure to run controller: %s", err.Error())
 		logger.Log("error", msg)
 		errc <- fmt.Errorf(ErrOperatorFailure, err)
 	}
+	// -------------------------------------------
 }
 
 // Helper functions
 func optionalVar(fs *pflag.FlagSet, value ssh.OptionalValue, name, usage string) ssh.OptionalValue {
 	fs.Var(value, name, usage)
 	return value
+}
+
+func setUpHelmClient(kubeClient *kubernetes.Clientset) (*fluxhelm.Helm, error) {
+	ts, err := kubeClient.CoreV1().Services("kube-system").Get("tiller-deploy", metav1.GetOptions{})
+	if err != nil {
+		return &fluxhelm.Helm{}, fmt.Errorf("Tiller server error: %v", err)
+	}
+
+	tillerIP := ts.Spec.ClusterIP
+	fmt.Printf("TILLER SERVICE IP=%#v\n", tillerIP)
+	port := ts.Spec.Ports[0].Port
+	fmt.Printf("TILLER SERVICE port=%#v\n", port)
+
+	opts := fluxhelm.TillerOptions{
+		IP:   tillerIP,
+		Port: fmt.Sprintf("%v", port),
+	}
+
+	hlm := fluxhelm.New(logger, opts)
+	if err != nil {
+		return &fluxhelm.Helm{}, fmt.Errorf("Cannot create helm client: %v", err)
+	}
+	return hlm, nil
 }

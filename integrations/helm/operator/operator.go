@@ -1,11 +1,7 @@
 package operator
 
 import (
-	"bytes"
-	"encoding/base64"
-	"encoding/gob"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/golang/glog"
@@ -30,6 +26,7 @@ import (
 	ifscheme "github.com/weaveworks/flux/integrations/client/clientset/versioned/scheme"
 	ifinformers "github.com/weaveworks/flux/integrations/client/informers/externalversions"
 	iflister "github.com/weaveworks/flux/integrations/client/listers/integrations/v1"
+	helmrelease "github.com/weaveworks/flux/integrations/helm/release"
 )
 
 const controllerAgentName = "helm-operator"
@@ -58,14 +55,10 @@ type Controller struct {
 	//fhrclientset is a clientset for our own API group
 	fhrclientset clientset.Interface
 
-	// =============================================
-	// the deploymentsLister to be perhaps reworked for the Chart releases ???
-	//	after syncing based on the relevant CR change
-	//deploymentsLister appslisters.DeploymentLister
-	// =============================================
 	fhrLister iflister.FluxHelmResourceLister
-
 	fhrSynced cache.InformerSynced
+
+	release *helmrelease.Release
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -74,8 +67,6 @@ type Controller struct {
 	// simultaneously in two different workers.
 	releaseWorkqueue workqueue.RateLimitingInterface
 
-	//workqueueUpdate workqueue.RateLimitingInterface
-	//workqueueDelete workqueue.RateLimitingInterface
 	// recorder is an event recorder for recording Event resources to the
 	// Kubernetes API.
 	recorder record.EventRecorder
@@ -86,38 +77,28 @@ func New(
 	logger log.Logger,
 	kubeclientset kubernetes.Interface,
 	fhrclientset clientset.Interface,
-	//kubeInformerFactory kubeinformers.SharedInformerFactory,
-	fhrInformerFactory ifinformers.SharedInformerFactory) *Controller {
+	fhrInformerFactory ifinformers.SharedInformerFactory,
+	release *helmrelease.Release) *Controller {
 
-	// obtain references to shared index informers for the Deployment and FluxHelmResource
-	// types.
-	//deploymentInformer := kubeInformerFactory.Apps().V1beta2().Deployments()
 	fhrInformer := fhrInformerFactory.Integrations().V1().FluxHelmResources()
 
-	// Create event broadcaster
 	// Add helm-operator types to the default Kubernetes Scheme so Events can be
 	// logged for helm-operator types.
 	ifscheme.AddToScheme(scheme.Scheme)
-	glog.V(4).Info("Creating event broadcaster")
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(glog.Infof)
 	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: kubeclientset.CoreV1().Events("")})
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
 
 	controller := &Controller{
-		logger:        logger,
-		kubeclientset: kubeclientset,
-		fhrclientset:  fhrclientset,
-		//deploymentsLister: deploymentInformer.Lister(),
-		//chartsSynced: deploymentInformer.Informer().HasSynced,
-		fhrLister: fhrInformer.Lister(),
-		fhrSynced: fhrInformer.Informer().HasSynced,
-
-		//---------------------------------------------------------------------------------
+		logger:           logger,
+		kubeclientset:    kubeclientset,
+		fhrclientset:     fhrclientset,
+		fhrLister:        fhrInformer.Lister(),
+		fhrSynced:        fhrInformer.Informer().HasSynced,
+		release:          release,
 		releaseWorkqueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ChartRelease"),
-		//workqueueUpdate: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ChartReleaseUpdate"),
-		//workqueueDelete: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "ChartReleaseDelete"),
-		recorder: recorder,
+		recorder:         recorder,
 	}
 
 	fmt.Println("===> Setting up event handlers")
@@ -129,7 +110,6 @@ func New(
 	fhrInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(new interface{}) {
 			fmt.Println("\n>>> ADDING release\n")
-			//fmt.Printf("\t>>> new CRD: %#v\n\n", new)
 			controller.enqueueJob(new)
 		},
 		UpdateFunc: func(old, new interface{}) {
@@ -137,12 +117,14 @@ func New(
 
 			oldMeta, err := meta.Accessor(old)
 			if err != nil {
-				fmt.Printf("*** ERROR ... %#v\n", err)
+				controller.logger.Log("error", fmt.Sprintf("%#v", err))
+				controller.discardJob()
 				return
 			}
 			newMeta, err := meta.Accessor(new)
 			if err != nil {
-				fmt.Printf("*** ERROR ... %#v\n", err)
+				controller.logger.Log("error", fmt.Sprintf("%#v", err))
+				controller.discardJob()
 				return
 			}
 
@@ -152,20 +134,26 @@ func New(
 			fmt.Printf("*** new META resource version ... %#v\n", newResVersion)
 
 			if newResVersion != oldResVersion {
-				fmt.Println("===========================>")
 				fmt.Printf("\n\t>>> UPDATING release: %#v\n\n", new)
-				fmt.Println("<==========================>")
 				controller.enqueueJob(new)
 			}
 		},
 		DeleteFunc: func(old interface{}) {
+			fhr, ok := checkCustomResourceType(old)
+			if !ok {
+				controller.logger.Log("error", fmt.Sprintf("FluxHelmResource Event Watch received an invalid object: %#v", old))
+				return
+			}
 			fmt.Printf("\n>>> DELETING release\n")
-			controller.enqueueJob(old)
-			// controller.deleteRelease(old)
-
-			// TODO Delete the release straight away???
+			fmt.Printf("\t>>> deleted CR: %#v\n\n", old)
+			name := helmrelease.GetReleaseName(fhr)
+			err := controller.deleteRelease(name)
+			if err != nil {
+				controller.logger.Log("error", fmt.Sprintf("Chart release [%q] not deleted: %#v", name, err))
+			}
 		},
 	})
+	fmt.Println("===> event handlers are set up")
 
 	return controller
 }
@@ -189,11 +177,8 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	}
 
 	c.logger.Log("info", "=== Starting workers ===")
-	// Launch two workers to process FluxHelmResource resources
 	for i := 0; i < threadiness; i++ {
 		go wait.Until(c.runWorker, time.Second, stopCh)
-		//	go wait.Until(c.runUpdateWorker, time.Second, stopCh)
-		//	go wait.Until(c.runDeleteWorker, time.Second, stopCh)
 	}
 
 	<-stopCh
@@ -202,27 +187,30 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	return nil
 }
 
-func serializeToBase64(obj interface{}) (string, error) {
-	b := bytes.Buffer{}
-	err := gob.NewEncoder(&b).Encode(obj)
-	if err != nil {
-		return "", err
-	}
-	return base64.StdEncoding.EncodeToString(b.Bytes()), nil
-}
-
-// runWorker is a long-running function that will continually call the
-// processNextWorkItem function in order to read and process a message on the
-// specific workqueue.
+// runWorker is a long-running function calling the
+// processNextWorkItem function to read and process a message
+// on a workqueue.
 func (c *Controller) runWorker() {
 	for c.processNextWorkItem() {
 	}
 }
 
+// discardJob unconditionally removes an item from the workqueue
+// this should never happen, but is a safety catch for a situation
+// the workqueue receives an incorrect item
+func (c *Controller) discardJob() {
+	obj, shutdown := c.releaseWorkqueue.Get()
+	c.logger.Log("info", fmt.Sprintf("\t\t\t---> discarding item\n\n[%#v]\n\n", obj))
+	if shutdown {
+		return
+	}
+	c.releaseWorkqueue.Forget(obj)
+	c.releaseWorkqueue.Done(obj)
+}
+
 // processNextWorkItem will read a single work item off the workqueue and
 // attempt to process it, by calling the syncHandler.
 func (c *Controller) processNextWorkItem() bool {
-	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 	c.logger.Log("info", "!!! in processNextWorkItem")
 
 	obj, shutdown := c.releaseWorkqueue.Get()
@@ -275,12 +263,10 @@ func (c *Controller) processNextWorkItem() bool {
 	}(obj)
 
 	if err != nil {
-		c.logger.Log("CRASH", fmt.Sprintf("\t\t *** %#v", err))
+		c.logger.Log("error", fmt.Sprintf("\t\t *** %#v", err))
 		runtime.HandleError(err)
 		return true
 	}
-	fmt.Println("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-
 	return true
 }
 
@@ -370,6 +356,21 @@ func (c *Controller) updateFluxHelmResourceStatus(fhr *ifv1.FluxHelmResource, de
 	return nil
 }
 
+func checkCustomResourceType(obj interface{}) (ifv1.FluxHelmResource, bool) {
+	_, err := meta.Accessor(obj)
+	if err != nil {
+		return ifv1.FluxHelmResource{}, false
+	}
+
+	var fhr *ifv1.FluxHelmResource
+	var ok bool
+	if fhr, ok = obj.(*ifv1.FluxHelmResource); !ok {
+		return ifv1.FluxHelmResource{}, false
+	}
+
+	return *fhr, true
+}
+
 func getCacheKey(obj interface{}) (string, error) {
 	fmt.Println("=== in getCacheKey ===")
 
@@ -409,27 +410,11 @@ func (c *Controller) enqueueJob(obj interface{}) {
 	c.logger.Log("info", fmt.Sprintf("\n\t\t===> appended key %s ... current WORK QUEUE length is %d <===\n\n", key, c.releaseWorkqueue.Len()))
 }
 
-func (c *Controller) deleteRelease(obj interface{}) error {
-	var key string
-	var err error
-	if key, err = getCacheKey(obj); err != nil {
-		return nil
-	}
-
-	parts := strings.Split(key, "/")
-	fhr, err := c.fhrLister.FluxHelmResources(parts[0]).Get(parts[1])
+func (c *Controller) deleteRelease(name string) error {
+	err := c.release.Delete(name)
 	if err != nil {
-		// The FluxHelmResource resource may no longer exist, in which case we stop
-		// processing.
-		if errors.IsNotFound(err) {
-			runtime.HandleError(fmt.Errorf("fluxhelmresource '%s' in work queue no longer exists", key))
-			return nil
-		}
 		return err
 	}
-	chart := fhr.Name
-	fmt.Printf("\t@@@ DELETED Chart %s\n", chart)
-
 	return nil
 }
 

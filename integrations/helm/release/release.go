@@ -3,9 +3,10 @@ package release
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sync"
 
-	"k8s.io/client-go/kubernetes"
+	//	"k8s.io/client-go/kubernetes"
 
 	"k8s.io/helm/pkg/chartutil"
 	k8shelm "k8s.io/helm/pkg/helm"
@@ -13,7 +14,7 @@ import (
 
 	"github.com/go-kit/kit/log"
 	ifv1 "github.com/weaveworks/flux/apis/integrations.flux/v1"
-	ifclientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
+	//ifclientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
 )
 
 var (
@@ -24,26 +25,26 @@ var (
 type Release struct {
 	logger log.Logger
 	//KubeClient *kubernetes.Clientset
-	IfClient   *ifclientset.Clientset // client for integration.flux, ie for custom resources
+	//IfClient   *ifclientset.Clientset // client for integration.flux, ie for custom resources
 	HelmClient *k8shelm.Client
 	sync.RWMutex
 }
 
 // New creates a new Release instance
-func New(logger log.Logger, kubeClient *kubernetes.Clientset, ifClient *ifclientset.Clientset, helmClient *k8shelm.Client) *Release {
+func New(logger log.Logger, helmClient *k8shelm.Client) *Release {
 	r := &Release{
 		logger: log.With(logger, "component", "release"),
 		//KubeClient: kubeClient,
-		IfClient:   ifClient,
+		//IfClient:   ifClient,
 		HelmClient: helmClient,
 	}
 
 	return r
 }
 
-// GetName either retrieves the release name from the Custom Resource or constructs a new one
+// GetReleaseName either retrieves the release name from the Custom Resource or constructs a new one
 //  in the form : $Namespace-$CustomResourceName
-func (r *Release) GetName(fhr ifv1.FluxHelmResource) string {
+func GetReleaseName(fhr ifv1.FluxHelmResource) string {
 	namespace := fhr.Namespace
 	if namespace == "" {
 		namespace = "default"
@@ -144,11 +145,20 @@ func (r *Release) Update(current hapi_release.Release) (hapi_release.Release, er
 
 // Delete deletes Chart release
 func (r *Release) Delete(name string) error {
+	r.Lock()
+	defer r.Unlock()
+
 	res, err := r.HelmClient.DeleteRelease(name)
+	fmt.Printf("Tiller delete response: %#v\n\n", res)
 	if err != nil {
+		fmt.Printf("ERROR Tiller delete response: %#v\n\n", err)
+		notFound, _ := regexp.MatchString("not found", err.Error())
+		if notFound {
+			fmt.Println("NOT FOUND")
+			return nil
+		}
 		return err
 	}
-
 	r.logger.Log("info", fmt.Sprintf("Release deleted: %q", res.Info))
 	return nil
 }

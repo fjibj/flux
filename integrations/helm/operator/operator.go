@@ -50,10 +50,10 @@ const (
 // Controller is the operator implementation for FluxHelmResource resources
 type Controller struct {
 	logger log.Logger
-	// kubeclientset is a standard kubernetes clientset
-	kubeclientset kubernetes.Interface
-	//fhrclientset is a clientset for our own API group
-	fhrclientset clientset.Interface
+	// 		kubeclientset is a standard kubernetes clientset
+	// kubeclientset kubernetes.Interface
+	// 		fhrclientset is a clientset for our own API group
+	// fhrclientset clientset.Interface
 
 	fhrLister iflister.FluxHelmResourceLister
 	fhrSynced cache.InformerSynced
@@ -80,6 +80,7 @@ func New(
 	fhrInformerFactory ifinformers.SharedInformerFactory,
 	release *helmrelease.Release) *Controller {
 
+	// Obtain reference to shared index informers for the FluxHelmResource
 	fhrInformer := fhrInformerFactory.Integrations().V1().FluxHelmResources()
 
 	// Add helm-operator types to the default Kubernetes Scheme so Events can be
@@ -91,9 +92,9 @@ func New(
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: controllerAgentName})
 
 	controller := &Controller{
-		logger:           logger,
-		kubeclientset:    kubeclientset,
-		fhrclientset:     fhrclientset,
+		logger: logger,
+		// kubeclientset:    kubeclientset,
+		// fhrclientset:     fhrclientset,
 		fhrLister:        fhrInformer.Lister(),
 		fhrSynced:        fhrInformer.Informer().HasSynced,
 		release:          release,

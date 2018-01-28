@@ -20,32 +20,27 @@ type Helm struct {
 	*k8shelm.Client
 }
 
-// New creates a new helm client
-func New(logger log.Logger, opts TillerOptions) *Helm {
+// NewClient creates a new helm client
+func NewClient(opts TillerOptions) *k8shelm.Client {
 	host := tillerHost(opts)
-	cl := k8shelm.NewClient(k8shelm.Host(host))
-
-	return &Helm{
-		logger: log.With(logger, "component", "helm"),
-		Host:   host,
-		Client: cl,
-	}
+	return k8shelm.NewClient(k8shelm.Host(host))
 }
 
 // GetTillerVersion retrieves tiller version
-func (helm Helm) GetTillerVersion() (string, error) {
+func GetTillerVersion(cl k8shelm.Client, h string) (string, error) {
 	var v *rls.GetVersionResponse
 	var err error
-	voption := k8shelm.VersionOption(k8shelm.Host(helm.Host))
-	if v, err = helm.Client.GetVersion(voption); err == nil {
-		helm.logger.Log("error", err)
+	voption := k8shelm.VersionOption(k8shelm.Host(h))
+	if v, err = cl.GetVersion(voption); err == nil {
 		return "", fmt.Errorf("error getting tiller version: %v", err)
 	}
-	helm.logger.Log("info", fmt.Sprintf("Tiller version is: [%#v]\n", v.GetVersion()))
+	fmt.Printf("Tiller version is: [%#v]\n", v.GetVersion())
 
 	return v.GetVersion().String(), nil
 }
 
+// TODO ... set up based on the tiller existing in the cluster, if no ops given
+//func tillerHost(kubeClient kubernetes.Clientset, opts TillerOptions) (string, error) {
 func tillerHost(opts TillerOptions) string {
 	port := "44134"
 	var ip string
@@ -56,5 +51,15 @@ func tillerHost(opts TillerOptions) string {
 	if opts.Port != "" {
 		port = opts.Port
 	}
+
+	/*
+		if ip == "" && port == "" {
+			ts, err := kubeClient.CoreV1().Services("kube-system").Get("tiller-deploy", metav1.GetOptions{})
+			if err != nil {
+				return "", err
+			}
+		}
+	*/
+
 	return fmt.Sprintf("%s:%s", ip, port)
 }

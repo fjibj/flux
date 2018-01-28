@@ -176,36 +176,8 @@ func main() {
 		errc <- fmt.Errorf("Error building kubernetes clientset: %v", err)
 	}
 
-	/*
-		ts, err := kubeClient.CoreV1().Services("kube-system").Get("tiller-deploy", metav1.GetOptions{})
-		if err != nil {
-			mainLogger.Log("error", fmt.Sprintf("Tiller server error: %v", err))
-			errc <- fmt.Errorf("Tiller server error: %v", err)
-		}
-
-		tillerIP := ts.Spec.ClusterIP
-		mainLogger.Log("info", fmt.Sprintf("TILLER SERVICE IP=%#v\n", tillerIP))
-		port := ts.Spec.Ports[0].Port
-		mainLogger.Log("info", fmt.Sprintf("TILLER SERVICE port=%#v\n", port))
-
-		opts := fluxhelm.TillerOptions{
-			IP:   tillerIP,
-			Port: fmt.Sprintf("%v", port),
-		}
-
-		hlm := fluxhelm.New(logger, opts)
-		if err != nil {
-			errc <- fmt.Errorf("Cannot create helm client: %v", err)
-		}
-		hlm.GetTillerVersion()
-	*/
-
-	hlm, err := setUpHelmClient(kubeClient)
-	if err != nil {
-		errc <- mainLogger.Log("error", err.Error())
-	}
-	hlm.GetTillerVersion()
-	res, err := hlm.Client.ListReleases(
+	helmClient := fluxhelm.NewClient(fluxhelm.TillerOptions{})
+	res, err := helmClient.ListReleases(
 	//k8shelm.ReleaseListLimit(10),
 	//k8shelm.ReleaseListOffset(l.offset),
 	//k8shelm.ReleaseListFilter(l.filter),
@@ -236,8 +208,6 @@ func main() {
 	fmt.Printf("\n>>> FOUND %v items\n\n", len(list.Items))
 	if err != nil {
 		glog.Errorf("Error listing all fluxhelmresources: %v", err)
-		//time.Sleep(1 * time.Minute)
-		//continue
 		os.Exit(1)
 	}
 
@@ -272,7 +242,7 @@ func main() {
 	go ifInformerFactory.Start(shutdown)
 
 	// ---------- Spin up the Operator ----------
-	rel := release.New(log.With(logger, "component", "release"), hlm.Client)
+	rel := release.New(log.With(logger, "component", "release"), helmClient)
 	opr := operator.New(log.With(logger, "component", "operator"), kubeClient, ifClient, ifInformerFactory, rel)
 	if err = opr.Run(2, shutdown); err != nil {
 		msg := fmt.Sprintf("Failure to run controller: %s", err.Error())
@@ -288,7 +258,8 @@ func optionalVar(fs *pflag.FlagSet, value ssh.OptionalValue, name, usage string)
 	return value
 }
 
-func setUpHelmClient(kubeClient *kubernetes.Clientset) (*fluxhelm.Helm, error) {
+/*
+func setUpHelmClient(kubeClient *kubernetes.Clientset) (*k8shelm.Client, error) {
 	ts, err := kubeClient.CoreV1().Services("kube-system").Get("tiller-deploy", metav1.GetOptions{})
 	if err != nil {
 		return &fluxhelm.Helm{}, fmt.Errorf("Tiller server error: %v", err)
@@ -310,3 +281,4 @@ func setUpHelmClient(kubeClient *kubernetes.Clientset) (*fluxhelm.Helm, error) {
 	}
 	return hlm, nil
 }
+*/

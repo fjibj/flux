@@ -1,0 +1,63 @@
+  - apiVersion: apiextensions.k8s.io/v1beta1
+    kind: CustomResourceDefinition
+    metadata:
+      name: fluxhelmresources.integrations.flux
+    spec:
+      group: integrations.flux
+      names:
+        kind: FluxHelmResource
+        listKind: FluxHelmResourceList
+        plural: fluxhelmresources
+      scope: Namespaced
+      version: v1                
+  - apiVersion: apps/v1beta1
+    kind: Deployment
+    metadata:
+      name: weave-helm-operator
+      annotations:
+        cloud.weave.works/launcher-info: |-
+          {
+            "server-version": "master-1677a73",
+            "original-request": {
+              "url": "/k8s/v1.7/weave-cloud.yaml?t=REDACTED&k8s-version=Q2xpZW50IFZlcnNpb246IHZlcnNpb24uSW5mb3tNYWpvcjoiMSIsIE1pbm9yOiI3IiwgR2l0VmVyc2lvbjoidjEuNy41IiwgR2l0Q29tbWl0OiIxN2Q3MTgyYTdjY2JiMTY3MDc0YmU3YTg3ZjBhNjhiZDAwZDU4ZDk3IiwgR2l0VHJlZVN0YXRlOiJjbGVhbiIsIEJ1aWxkRGF0ZToiMjAxNy0wOC0zMVQwOToxNDowMloiLCBHb1ZlcnNpb246ImdvMS44LjMiLCBDb21waWxlcjoiZ2MiLCBQbGF0Zm9ybToibGludXgvYW1kNjQifQpTZXJ2ZXIgVmVyc2lvbjogdmVyc2lvbi5JbmZve01ham9yOiIxIiwgTWlub3I6IjciLCBHaXRWZXJzaW9uOiJ2MS43LjUiLCBHaXRDb21taXQ6IjE3ZDcxODJhN2NjYmIxNjcwNzRiZTdhODdmMGE2OGJkMDBkNThkOTciLCBHaXRUcmVlU3RhdGU6ImNsZWFuIiwgQnVpbGREYXRlOiIyMDE3LTA5LTE4VDIwOjMwOjI5WiIsIEdvVmVyc2lvbjoiZ28xLjguMyIsIENvbXBpbGVyOiJnYyIsIFBsYXRmb3JtOiJsaW51eC9hbWQ2NCJ9Cg==&flux-version=1.0.0-beta",
+              "date": "Thu Oct 19 2017 16:30:28 GMT+0000 (UTC)"
+            },
+            "email-address": "support@weave.works"
+          }
+      labels:
+        name: weave-helm-operator
+        app: weave-flux
+        weave-cloud-component: flux
+        weave-flux-component: helm-operator
+      namespace: weave
+    spec:
+      replicas: 1
+      strategy:
+        type: Recreate
+      template:
+        metadata:
+          labels:
+            name: weave-helm-operator
+            app: weave-flux
+            weave-cloud-component: flux
+            weave-flux-component: helm-operator
+        spec:
+          containers:
+            - name: operator
+              args:
+                - '--token=local-test-token'
+                - '--connect=ws://authfe.default.svc.cluster.local/api/flux'
+                - '--git-url=git@github.com:tamarakaufler/helm-fhr-test.git'
+                - '--git-branch=master'
+                - '--git-config-path=config'
+                - '--git-charts-path=charts'
+              image: 'quay.io/weaveworks/helm-operator'
+              imagePullPolicy: IfNotPresent
+              volumeMounts:
+                - name: git-key
+                  mountPath: /etc/fluxd/ssh
+          serviceAccountName: weave-flux
+          volumes:
+            - name: git-key
+              secret:
+                secretName: flux-git-deploy 

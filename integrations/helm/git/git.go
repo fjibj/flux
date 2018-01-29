@@ -10,8 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaveworks/flux"
-	ifv1 "github.com/weaveworks/flux/apis/integrations.flux/v1"
 	gogit "gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing"
 )
@@ -26,24 +24,50 @@ var (
 	ErrNoRepoCloned = errors.New("no repo cloned")
 )
 
+type GitRemoteConfig struct {
+	URL        string `json:"url"`
+	Branch     string `json:"branch"`
+	ConfigPath string `json:"config-path"`
+	ChartsPath string `json:"charts-path"`
+}
+
 // Repo represents a (remote) git repo.
 type Repo struct {
-	flux.GitRemoteConfig
+	GitRemoteConfig
 }
 
 // Checkout is a local clone of the remote repo.
 type Checkout struct {
 	logger   log.Logger
-	Config   flux.GitRemoteConfig
+	Config   GitRemoteConfig
+	Dir      string
 	repo     *gogit.Repository
 	worktree *gogit.Worktree
-	Dir      string
 	sync.RWMutex
+}
+
+func NewGitRemoteConfig(url, branch, configPath, chartsPath string) (GitRemoteConfig, error) {
+	if len(configPath) == 0 || configPath[0] == '/' {
+		return GitRemoteConfig{}, errors.New("git subdirectory (--git-config-path) must be given and cannot have leading forward slash")
+	}
+	if len(chartsPath) == 0 || chartsPath[0] == '/' {
+		return GitRemoteConfig{}, errors.New("git subdirectory (--git-charts-path) must be given and cannot have leading forward slash")
+	}
+	return GitRemoteConfig{
+		URL:        url,
+		Branch:     branch,
+		ConfigPath: configPath,
+		ChartsPath: chartsPath,
+	}, nil
 }
 
 // CloneAndCheckout creates a local clone of a remote repo and
 // checks out the relevant branch
-func (ch *Checkout) CloneAndCheckout(ctx context.Context) error {
+//		subdir reflects whether we are:
+//																		* acting on Custom Resource change
+//																		* acting on Charts changes (syncing the cluster when there were only commits
+//																		  in the Charts parts of the repo which did not trigger Custom Resource changes)
+func (ch *Checkout) CloneAndCheckout(ctx context.Context, cloneSubdir string) error {
 	ch.Lock()
 	defer ch.Unlock()
 
@@ -51,7 +75,7 @@ func (ch *Checkout) CloneAndCheckout(ctx context.Context) error {
 		return ErrNoRepo
 	}
 
-	repoDir, err := ioutil.TempDir(os.TempDir(), "helmchart-gitclone")
+	repoDir, err := ioutil.TempDir(os.TempDir(), cloneSubdir)
 	if err != nil {
 		return err
 	}
@@ -60,7 +84,6 @@ func (ch *Checkout) CloneAndCheckout(ctx context.Context) error {
 
 	repo, err := gogit.PlainClone(repoDir, false, &gogit.CloneOptions{
 		URL: ch.Config.URL,
-		//		Progress: os.Stdout,
 	})
 	if err != nil && err != gogit.ErrRepositoryAlreadyExists {
 		return err
@@ -101,6 +124,7 @@ func (ch *Checkout) Cleanup() {
 	ch.worktree = nil
 }
 
+/*
 // ChangedCharts makes a new git pull and determines which charts changed
 // ChangedCharts method does a git pull and finds the latest revisison
 // Among suppplied custom resources it finds the ones whose revision is different
@@ -109,10 +133,15 @@ func (ch *Checkout) ChangedCharts(crs []ifv1.FluxHelmResource) ([]ifv1.FluxHelmR
 	ch.Lock()
 	defer ch.Unlock()
 
+	rev, err := ch.getRevision()
+	if err != nil {
+		return nil, err
+	}
+
 	if err := ch.pull(); err != nil {
 		return nil, err
 	}
-	/*
+
 		rev, err := ch.getRevision()
 		if err != nil {
 			return nil, err
@@ -126,9 +155,10 @@ func (ch *Checkout) ChangedCharts(crs []ifv1.FluxHelmResource) ([]ifv1.FluxHelmR
 					crForUpdate = append(crForUpdate, cr)
 				}
 		}
-	*/
+
 	return []ifv1.FluxHelmResource{}, nil
 }
+*/
 
 func (ch *Checkout) pull() error {
 	w := ch.worktree
@@ -153,27 +183,4 @@ func (ch *Checkout) getRevision() (string, error) {
 	return rev, nil
 }
 
-// getVersion returns string representation of the Chart version
-// given a particular Chart path within the repo
-func (ch *Checkout) getChartVersion(chartDir string) (string, error) {
-	if ch.Dir == "" {
-		return "", ErrNoRepoCloned
-	}
-
-	chartYaml, err := ioutil.ReadFile(filepath.Join(ch.Dir, chartDir, "Chart.yaml"))
-	if err != nil {
-		return "", err
-	}
-
-	type chartMeta struct {
-		Version string `yaml:"version"`
-	}
-	chm := chartMeta{}
-	err = yaml.Unmarshal(chartYaml, chm)
-	if err != nil {
-		log.Fatalf("Unmarshal: %v", err)
-	}
-
-	return chm.Version, nil
-}
 */

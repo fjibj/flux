@@ -32,10 +32,10 @@ type FluxHelmResourceSpec struct {
 //		Value ...
 //		Type  ... type: string, integer, float; if missing, then string is the default
 
+// HelmChartParam ... user customization of Chart parameterized values
 type HelmChartParam struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
-	Type  string `json:"type"`
 }
 
 // FluxHelmResourceStatus is the status for a FluxHelmResource resource

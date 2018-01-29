@@ -30,11 +30,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	ifinformers "github.com/weaveworks/flux/integrations/client/informers/externalversions"
-	//"github.com/weaveworks/flux/integrations/helm/operator/operator"
-
 	clientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
+	ifinformers "github.com/weaveworks/flux/integrations/client/informers/externalversions"
 	fluxhelm "github.com/weaveworks/flux/integrations/helm"
+	"github.com/weaveworks/flux/integrations/helm/git"
 	"github.com/weaveworks/flux/integrations/helm/operator"
 	"github.com/weaveworks/flux/integrations/helm/release"
 	"github.com/weaveworks/flux/ssh"
@@ -76,6 +75,11 @@ var (
 	ErrOperatorFailure = "Operator failure: %q"
 )
 
+const (
+	defaultGitConfigPath = "releaseconfig"
+	defaultGitChartsPath = "charts"
+)
+
 type RevisionPatch struct {
 	Revision string
 }
@@ -103,8 +107,8 @@ func init() {
 	customKubectl = fs.String("kubernetes-kubectl", "", "Optional, explicit path to kubectl tool")
 	gitURL = fs.String("git-url", "", "URL of git repo with Kubernetes manifests; e.g., git@github.com:weaveworks/flux-example")
 	gitBranch = fs.String("git-branch", "master", "branch of git repo to use for Kubernetes manifests")
-	gitConfigPath = fs.String("git-config-path", "config", "path within git repo to locate Custom Resource Kubernetes manifests (relative path)")
-	gitChartsPath = fs.String("git-charts-path", "charts", "path within git repo to locate Helm Charts (relative path)")
+	gitConfigPath = fs.String("git-config-path", defaultGitConfigPath, "path within git repo to locate Custom Resource Kubernetes manifests (relative path)")
+	gitChartsPath = fs.String("git-charts-path", defaultGitChartsPath, "path within git repo to locate Helm Charts (relative path)")
 
 	// k8s-secret backed ssh keyring configuration
 	k8sSecretName = fs.String("k8s-secret-name", "flux-git-deploy", "Name of the k8s secret used to store the private SSH key")
@@ -154,14 +158,13 @@ func main() {
 	mainLogger := log.With(logger, "component", "helm-operator")
 	mainLogger.Log("info", "!!! I am functional! !!!")
 
-	/*
-		// Git repo info
-		gitRemoteConfig, err := flux.NewGitRemoteConfig(*gitURL, *gitBranch, *gitPath)
-		if err != nil {
-			logger.Log("err", err)
-			os.Exit(1)
-		}
-	*/
+	// Git repo info
+	gitRemoteConfig, err := git.NewGitRemoteConfig(*gitURL, *gitBranch, *gitConfigPath, *gitChartsPath)
+	if err != nil {
+		logger.Log("err", err)
+		os.Exit(1)
+	}
+	fmt.Printf("%#v", gitRemoteConfig)
 
 	// ----------------------------------------------------------------------
 	// set up cluster configuration

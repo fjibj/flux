@@ -1,0 +1,19 @@
+---
+  apiVersion: integrations.flux/v1
+  kind: FluxHelmResource
+  metadata:
+    name: mongodb
+    namespace: kube-system
+    labels:
+      chart: charts_mongodb
+  spec:
+    chartgitpath: charts/mongodb
+    releasename: kube-system-mongodb
+    customizations:
+      - name: image
+        value: bitnami/mongodb:3.7.1-r0
+        type: string
+      - name: imagePullPolicy
+        value: IfNotPresent
+        type: string
+            

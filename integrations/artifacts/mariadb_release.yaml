@@ -1,0 +1,14 @@
+---
+  apiVersion: integrations.flux/v1
+  kind: FluxHelmResource
+  metadata:
+    name: defaultmariadb
+    namespace: kube-system
+    labels:
+      chart: charts_mariadb
+  spec:
+    chartgitpath: charts/mariadb
+    customizations:
+      - name: image
+        value: bitnami/mariadb:10.1.30-r1
+

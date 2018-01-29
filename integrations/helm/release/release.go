@@ -1,6 +1,8 @@
 package release
 
 import (
+	"bytes"
+	"encoding/gob"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -184,18 +186,15 @@ func collectValues(params []ifv1.HelmChartParam) ([]byte, error) {
 		return customValues, nil
 	}
 
-	// create struct => marshal it
-
+	customValuesMap := make(map[string]interface{})
 	for _, v := range params {
-		switch v.Type {
-		case "int":
-		//	customValues = append()
-		case "string":
-		case "float":
-		default:
-
-		}
+		customValuesMap[v.Name] = v.Value
+	}
+	b := new(bytes.Buffer)
+	encoder := gob.NewEncoder(b)
+	if err := encoder.Encode(customValuesMap); err != nil {
+		return nil, err
 	}
 
-	return customValues, nil
+	return b.Bytes(), nil
 }

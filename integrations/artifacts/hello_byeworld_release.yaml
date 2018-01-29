@@ -2,35 +2,33 @@
   apiVersion: integrations.flux/v1
   kind: FluxHelmResource
   metadata:
-    name: kubesystemhelloworld
+    name: hlmhelloworld
     namespace: kube-system
     labels:
       chart: charts_helloworld
   spec:
     chartgitpath: charts/helloworld
     customizations:
-      - name: image
+      - name: image.repository
         value: quay.io/weaveworks/helloworld
         type: string
-      - name: image-tag
+      - name: image.tag
         value: master-a000001
-      - name: param1
-        value: "105"
-        type: int
 ---
   apiVersion: integrations.flux/v1
   kind: FluxHelmResource
   metadata:
-    name: kubesystembyeworld
+    name: hlmbyeworld
     namespace: kube-system
     labels:
       chart: charts_byeworld
   spec:
     chartgitpath: charts/byeworld
     customizations:
-      - name: image
+      - name: image.repository
         value: quay.io/tamara/byeworld:master-a000003
         type: string
-      - name: param1
-        value: fake3
+      - name: image.tag
+        value: master-a000003
         type: string
+

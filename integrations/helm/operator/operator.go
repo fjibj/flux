@@ -166,8 +166,6 @@ func New(
 func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	defer runtime.HandleCrash()
 	defer c.releaseWorkqueue.ShutDown()
-	//defer c.workqueueUpdate.ShutDown()
-	//defer c.workqueueDelete.ShutDown()
 
 	c.logger.Log("info", ">>> Starting operator <<<")
 	// Wait for the caches to be synced before starting workers
@@ -283,6 +281,7 @@ func (c *Controller) syncHandler(key string) error {
 		return nil
 	}
 
+	// Custom Resource fhr contains all information we need to know about the Chart release
 	fhr, err := c.fhrLister.FluxHelmResources(namespace).Get(name)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -373,19 +372,8 @@ func checkCustomResourceType(obj interface{}) (ifv1.FluxHelmResource, bool) {
 }
 
 func getCacheKey(obj interface{}) (string, error) {
-	fmt.Println("=== in getCacheKey ===")
-
 	var key string
 	var err error
-
-	/*
-		meta, err := meta.Accessor(obj)
-		if err != nil {
-			fmt.Printf("*** ERROR in getCacheKey ... %#v\n", err)
-		} else {
-			fmt.Printf("*** META ... %#v\n", meta)
-		}
-	*/
 
 	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
 		runtime.HandleError(err)

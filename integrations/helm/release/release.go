@@ -3,6 +3,7 @@ package release
 import (
 	"bytes"
 	"encoding/gob"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -58,12 +59,12 @@ func GetReleaseName(fhr ifv1.FluxHelmResource) string {
 	return releaseName
 }
 
-// Exists detects if a particular Chart release exists
-func (r *Release) Exists(name string) (bool, error) {
+// Get ... detects if a particular Chart release exists
+func (r *Release) Get(name string) (*hapi_release.Release, error) {
 	rls, err := r.HelmClient.ReleaseContent(name)
 	if err != nil {
 		r.logger.Log("error", fmt.Sprintf("%#v", err))
-		return false, err
+		return &hapi_release.Release{}, err
 	}
 	/*
 		"UNKNOWN":          0,
@@ -79,19 +80,19 @@ func (r *Release) Exists(name string) (bool, error) {
 	rst := rls.Release.Info.Status.GetCode()
 	if rst != 1 {
 		r.logger.Log("error", fmt.Sprintf("Release (%q) status: %#v", name, rst.String()))
-		return false, nil
+		return &hapi_release.Release{}, errors.New("NOT EXISTS")
 	}
-	return true, nil
+	return rls.Release, nil
 }
 
-// Create installs a Chart
-func (r *Release) Create(fhr ifv1.FluxHelmResource) (hapi_release.Release, error) {
+// Create ... creates a new Chart release
+func (r *Release) Create(releaseName string, fhr ifv1.FluxHelmResource) (hapi_release.Release, error) {
 	r.Lock()
 	defer r.Unlock()
 
 	chartPath := fhr.Spec.ChartGitPath
 	if chartPath == "" {
-		r.logger.Log("error")
+		r.logger.Log("error", fmt.Sprintf(ErrChartGitPathMissing, fhr.GetName()))
 		return hapi_release.Release{}, fmt.Errorf(ErrChartGitPathMissing, fhr.GetName())
 	}
 
@@ -99,11 +100,8 @@ func (r *Release) Create(fhr ifv1.FluxHelmResource) (hapi_release.Release, error
 	if namespace == "" {
 		namespace = "default"
 	}
-	fhrName := fhr.GetName()
-	releaseName := fmt.Sprintf("%s-%s", namespace, fhrName)
 
 	// set up the git repo:
-	//		clone - or do just once? ...
 	//    go to the repo root
 	//		-----
 	//		checkout the latest changes
@@ -111,7 +109,8 @@ func (r *Release) Create(fhr ifv1.FluxHelmResource) (hapi_release.Release, error
 	// load the chart to turn it into a Chart object
 	chart, err := chartutil.Load(filepath.Join(chartPath))
 	if err != nil {
-		return hapi_release.Release{}, fmt.Errorf("Chart release failed: %q: %#v", chartPath, err)
+		r.logger.Log("error", fmt.Sprintf("Chart release failed: %q: %#v", releaseName, err))
+		return hapi_release.Release{}, fmt.Errorf("Chart release failed: %q: %#v", releaseName, err)
 	}
 
 	// Set up values
@@ -134,6 +133,7 @@ func (r *Release) Create(fhr ifv1.FluxHelmResource) (hapi_release.Release, error
 	)
 
 	if err != nil {
+		r.logger.Log("error", fmt.Sprintf("Chart release failed: %q: %#v", releaseName, err))
 		return hapi_release.Release{}, err
 	}
 
@@ -141,7 +141,8 @@ func (r *Release) Create(fhr ifv1.FluxHelmResource) (hapi_release.Release, error
 }
 
 // Update updates Chart release
-func (r *Release) Update(current hapi_release.Release) (hapi_release.Release, error) {
+func (r *Release) Update(current hapi_release.Release, fhr ifv1.FluxHelmResource) (hapi_release.Release, error) {
+	//func (h *Client) UpdateReleaseFromChart(rlsName string, chart *chart.Chart, opts ...UpdateOption) (*rls.UpdateReleaseResponse, error) {
 	return hapi_release.Release{}, nil
 }
 

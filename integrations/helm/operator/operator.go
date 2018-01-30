@@ -291,46 +291,26 @@ func (c *Controller) syncHandler(key string) error {
 		return err
 	}
 
-	customs := fhr.Spec.Customizations
-
-	// Sanity check of input - needed ?
-	if customs != nil {
-		// TODO collect all empty values => return an error with the info
-		for _, cu := range customs {
-			if cu.Value == "" {
-				// We choose to absorb the error here as the worker would requeue the
-				// resource otherwise. Instead, the next time the resource is updated
-				// the resource will be queued again.
-
-				// TODO send error to upstream (through RPC server)  instead of absorbing and skip the syncing of this fhr
-				runtime.HandleError(fmt.Errorf("%s: customization value must be specified [%s]", key, cu.Name))
-
-				fmt.Printf("=== %s: customization value must be specified [%s]\n\n", key, cu.Name)
-				c.recorder.Event(fhr, corev1.EventTypeNormal, ErrChartSync, MessageErrChartSync)
-
-				return nil
-			}
-		}
+	// get Chart release name
+	var releaseName string
+	if releaseName = fhr.Spec.ReleaseName; releaseName != "" {
+		releaseName = fmt.Sprintf("%q:%q", namespace, name)
 	}
-
-	// Now do something with the relevant Chart
-	// ----------------------------------------
-	//	releaseName := release.GetName(fhr)
-	//	releaseExists := release.Exists(releaseName)
-
-	// Get the release associated with this Chart:
-	// a) helm operator created release name
-	// b) release from helm release listing
-
-	// Release does not exist => release the Chart and specify the release name (namespace:Chart name)
-	// Release exists => update the Chart release
-
-	// Finally, we update the status block of the FluxHelmResource resource to reflect the
-	// current state of the world
 	/*
-		err = c.updateFluxHelmResourceStatus(fhr, chartRelease)
-		if err != nil {
-			return err
+		// find if release exists
+		chartRelease, err := c.release.Get(releaseName)
+		if err != nil && err.Error() == "NOT EXISTS" {
+			_, err := c.release.Create(releaseName, *fhr)
+			if err != nil {
+				return err
+			}
+			c.logger.Log("info", fmt.Sprintf("Created new Chart release: %q", releaseName))
+		} else {
+			_, err := c.release.Update(*chartRelease, *fhr)
+			if err != nil {
+				return err
+			}
+			c.logger.Log("info", fmt.Sprintf("Updated Chart release: %q", releaseName))
 		}
 	*/
 

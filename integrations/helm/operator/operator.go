@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	appsv1beta2 "k8s.io/api/apps/v1beta2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -297,14 +296,14 @@ func (c *Controller) syncHandler(key string) error {
 		releaseName = fmt.Sprintf("%q:%q", namespace, name)
 	}
 	// find if release exists
-	var syncType chartrelease.SyncType
+	var syncType chartrelease.ReleaseType
 
 	_, err = c.release.Get(releaseName)
 	if err != nil && err.Error() == "NOT EXISTS" {
-		syncType = chartrelease.SyncType("CREATE")
+		syncType = chartrelease.ReleaseType("CREATE")
 		c.logger.Log("info", fmt.Sprintf("Creating a new Chart release: %q", releaseName))
 	} else {
-		syncType = chartrelease.SyncType("UPDATE")
+		syncType = chartrelease.ReleaseType("UPDATE")
 		c.logger.Log("info", fmt.Sprintf("Updating Chart release: %q", releaseName))
 	}
 	_, err = c.release.Install(releaseName, *fhr, syncType)
@@ -313,24 +312,6 @@ func (c *Controller) syncHandler(key string) error {
 	}
 
 	c.recorder.Event(fhr, corev1.EventTypeNormal, ChartSynced, MessageChartSynced)
-	return nil
-}
-
-func (c *Controller) updateFluxHelmResourceStatus(fhr *ifv1.FluxHelmResource, deployment *appsv1beta2.Deployment) error {
-	// NEVER modify objects from the store. It's a read-only, local cache.
-	// You can use DeepCopy() to make a deep copy of original object and modify this copy
-	// Or create a copy manually for better performance
-
-	/*
-		fhrCopy := fhr.DeepCopy()
-		fhrCopy.Status.AvailableReplicas = deployment.Status.AvailableReplicas
-		// Until #38113 is merged, we must use Update instead of UpdateStatus to
-		// update the Status block of the FluxHelmResource resource. UpdateStatus will not
-		// allow changes to the Spec of the resource, which is ideal for ensuring
-		// nothing other than resource status has been updated.
-		_, err := c.fhrclientset.SamplecontrollerV1alpha1().FluxHelmResources(fhr.Namespace).Update(fhrCopy)
-		return err
-	*/
 	return nil
 }
 
@@ -383,13 +364,4 @@ func (c *Controller) deleteRelease(name string) error {
 		return err
 	}
 	return nil
-}
-
-//func newChartRelease(fhr *ifv1.FluxHelmResource) *appsv1beta2.Deployment {
-func createRelease(fhr *ifv1.FluxHelmResource) {
-	fmt.Printf("\t@@@  Released new chart for %#v\n\n", fhr.Name)
-}
-
-func updateRelease(fhr *ifv1.FluxHelmResource) {
-	fmt.Printf("\t@@@ Updated release for new chart for %#v\n\n", fhr.Name)
 }

@@ -25,7 +25,8 @@ var (
 	ErrChartGitPathMissing = "Chart deploy configuration (%q) has empty Chart git path"
 )
 
-type SyncType string
+// ReleaseType determines whether we are making a new Chart release or updating an existing one
+type ReleaseType string
 
 // Release contains clients needed to provide functionality related to helm releases
 type Release struct {
@@ -72,6 +73,8 @@ func GetReleaseName(fhr ifv1.FluxHelmResource) string {
 // Get ... detects if a particular Chart release exists
 func (r *Release) Get(name string) (*hapi_release.Release, error) {
 	rls, err := r.HelmClient.ReleaseContent(name)
+
+	// TODO: see what errors can be returned
 	if err != nil {
 		r.logger.Log("error", fmt.Sprintf("%#v", err))
 		return &hapi_release.Release{}, err
@@ -95,8 +98,9 @@ func (r *Release) Get(name string) (*hapi_release.Release, error) {
 	return rls.Release, nil
 }
 
-// Create ... creates a new Chart release
-func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, releaseType SyncType) (hapi_release.Release, error) {
+// Install ... performs Chart release. Depending on the release type, this is either a new release,
+// or an upgrade of an existing one
+func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, releaseType ReleaseType) (hapi_release.Release, error) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -128,7 +132,7 @@ func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, release
 
 	// INSTALLATION ----------------------------------------------------------------------
 	switch releaseType {
-	case "create":
+	case "CREATE":
 		res, err := r.HelmClient.InstallReleaseFromChart(
 			chart,
 			namespace,
@@ -149,7 +153,7 @@ func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, release
 			return hapi_release.Release{}, err
 		}
 		return *res.Release, nil
-	case "update":
+	case "UPDATE":
 		res, err := r.HelmClient.UpdateRelease(
 			releaseName,
 			chartDir,
@@ -165,73 +169,13 @@ func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, release
 			return hapi_release.Release{}, err
 		}
 		return *res.Release, nil
-	}
-
-	return hapi_release.Release{}, nil
-}
-
-// Create ... creates a new Chart release
-func (r *Release) Create(releaseName string, fhr ifv1.FluxHelmResource) (hapi_release.Release, error) {
-	r.Lock()
-	defer r.Unlock()
-
-	chartPath := fhr.Spec.ChartGitPath
-	if chartPath == "" {
-		r.logger.Log("error", fmt.Sprintf(ErrChartGitPathMissing, fhr.GetName()))
-		return hapi_release.Release{}, fmt.Errorf(ErrChartGitPathMissing, fhr.GetName())
-	}
-
-	namespace := fhr.GetNamespace()
-	if namespace == "" {
-		namespace = "default"
-	}
-
-	// set up the git repo:
-	//    go to the repo root
-	//		-----
-	//		checkout the latest changes
-
-	// load the chart to turn it into a Chart object
-	chart, err := chartutil.Load(filepath.Join(chartPath))
-	if err != nil {
-		r.logger.Log("error", fmt.Sprintf("Chart release failed: %q: %#v", releaseName, err))
-		return hapi_release.Release{}, fmt.Errorf("Chart release failed: %q: %#v", releaseName, err)
-	}
-
-	// Set up values
-	rawVals, err := collectValues(fhr.Spec.Customizations)
-	if err != nil {
+	default:
+		r.logger.Log("error", fmt.Sprintf("Incorrect ReleaseType option provided: %#v", releaseType))
 		return hapi_release.Release{}, err
 	}
-
-	// Install the Chart
-	res, err := r.HelmClient.InstallReleaseFromChart(
-		chart,
-		namespace,
-		k8shelm.ValueOverrides(rawVals),
-		k8shelm.ReleaseName(releaseName),
-	//		helm.InstallDryRun(i.dryRun),
-	//		helm.InstallReuseName(i.replace),
-	//		helm.InstallDisableHooks(i.disableHooks),
-	//		helm.InstallTimeout(i.timeout),
-	//		helm.InstallWait(i.wait)
-	)
-
-	if err != nil {
-		r.logger.Log("error", fmt.Sprintf("Chart release failed: %q: %#v", releaseName, err))
-		return hapi_release.Release{}, err
-	}
-
-	return *res.Release, nil
 }
 
-// Update updates Chart release
-func (r *Release) Update(current hapi_release.Release, fhr ifv1.FluxHelmResource) (hapi_release.Release, error) {
-	//func (h *Client) UpdateReleaseFromChart(rlsName string, chart *chart.Chart, opts ...UpdateOption) (*rls.UpdateReleaseResponse, error) {
-	return hapi_release.Release{}, nil
-}
-
-// Delete deletes Chart release
+// Delete ... deletes Chart release
 func (r *Release) Delete(name string) error {
 	r.Lock()
 	defer r.Unlock()

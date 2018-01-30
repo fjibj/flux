@@ -4,13 +4,17 @@ import (
 	"fmt"
 
 	"github.com/go-kit/kit/log"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 	k8shelm "k8s.io/helm/pkg/helm"
 	rls "k8s.io/helm/pkg/proto/hapi/services"
 )
 
 type TillerOptions struct {
-	IP   string
-	Port string
+	IP        string
+	Port      string
+	Namespace string
 }
 
 // Helm struct provides access to helm client
@@ -21,9 +25,14 @@ type Helm struct {
 }
 
 // NewClient creates a new helm client
-func NewClient(opts TillerOptions) *k8shelm.Client {
-	host := tillerHost(opts)
-	return k8shelm.NewClient(k8shelm.Host(host))
+func NewClient(kubeClient *kubernetes.Clientset, opts TillerOptions) (*k8shelm.Client, error) {
+	host, err := tillerHost(kubeClient, opts)
+	if err != nil {
+		return &k8shelm.Client{}, err
+	}
+	fmt.Printf("Tiller host = %q\n", host)
+
+	return k8shelm.NewClient(k8shelm.Host(host)), nil
 }
 
 // GetTillerVersion retrieves tiller version
@@ -40,26 +49,30 @@ func GetTillerVersion(cl k8shelm.Client, h string) (string, error) {
 }
 
 // TODO ... set up based on the tiller existing in the cluster, if no ops given
-//func tillerHost(kubeClient kubernetes.Clientset, opts TillerOptions) (string, error) {
-func tillerHost(opts TillerOptions) string {
-	port := "44134"
+func tillerHost(kubeClient *kubernetes.Clientset, opts TillerOptions) (string, error) {
+	var ts *corev1.Service
+	var err error
 	var ip string
+	var port string
+
+	fmt.Printf("Tiller Options = : %#v\n", opts)
+
+	// TODO: check the options during tiller setup
+	if opts.IP == "" {
+		ts, err = kubeClient.CoreV1().Services(opts.Namespace).Get("tiller-deploy", metav1.GetOptions{})
+		if err != nil {
+			return "", err
+		}
+		ip = ts.Spec.ClusterIP
+		port = fmt.Sprintf("%v", ts.Spec.Ports[0].Port)
+	}
 
 	if opts.IP != "" {
 		ip = opts.IP
 	}
 	if opts.Port != "" {
-		port = opts.Port
+		port = fmt.Sprintf("%v", opts.Port)
 	}
 
-	/*
-		if ip == "" && port == "" {
-			ts, err := kubeClient.CoreV1().Services("kube-system").Get("tiller-deploy", metav1.GetOptions{})
-			if err != nil {
-				return "", err
-			}
-		}
-	*/
-
-	return fmt.Sprintf("%s:%s", ip, port)
+	return fmt.Sprintf("%s:%s", ip, port), nil
 }

@@ -48,8 +48,13 @@ var (
 	logger  log.Logger
 	kubectl string
 
-	kubeconfig          *string
-	master              *string
+	kubeconfig *string
+	master     *string
+
+	tillerIP        *string
+	tillerPort      *string
+	tillerNamespace *string
+
 	crdPollInterval     *time.Duration
 	eventHandlerWorkers *uint
 
@@ -100,6 +105,10 @@ func init() {
 
 	kubeconfig = fs.String("kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
 	master = fs.String("master", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
+
+	tillerIP = fs.String("tiller-ip", "", "Tiller IP address. Only required if out-of-cluster.")
+	tillerPort = fs.String("tiller-port", "", "Tiller port. Only required if out-of-cluster.")
+	tillerNamespace = fs.String("tiller-namespace", "kube-system", "Tiller namespace. If not provided, the default is kube-system.")
 
 	crdPollInterval = fs.Duration("crd-poll-interval", 5*time.Minute, "Period at which to check for custom resources")
 	eventHandlerWorkers = fs.Uint("event-handler-workers", 2, "Number of workers processing events for Flux-Helm custom resources")
@@ -179,7 +188,13 @@ func main() {
 		errc <- fmt.Errorf("Error building kubernetes clientset: %v", err)
 	}
 
-	helmClient := fluxhelm.NewClient(fluxhelm.TillerOptions{})
+	//helmClient, err := fluxhelm.NewClient(kubeClient, fluxhelm.TillerOptions{Namespace: *tillerNamespace})
+	helmClient, err := fluxhelm.NewClient(kubeClient, fluxhelm.TillerOptions{IP: *tillerIP, Port: *tillerPort, Namespace: *tillerNamespace})
+	if err != nil {
+		mainLogger.Log("error", fmt.Sprintf("Error creating helm client: %v", err))
+		errc <- fmt.Errorf("Error creating helm client: %v", err)
+	}
+	mainLogger.Log("info", "Set up helmClient")
 	res, err := helmClient.ListReleases(
 	//k8shelm.ReleaseListLimit(10),
 	//k8shelm.ReleaseListOffset(l.offset),

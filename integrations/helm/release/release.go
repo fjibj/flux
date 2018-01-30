@@ -115,6 +115,10 @@ func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, release
 		namespace = "default"
 	}
 
+	err := r.repo.fhrChange.Pull()
+	if err != nil {
+		return hapi_release.Release{}, err
+	}
 	repoDir := r.repo.fhrChange.Dir
 	chartDir := filepath.Join(repoDir, chartPath)
 
@@ -181,12 +185,11 @@ func (r *Release) Delete(name string) error {
 	defer r.Unlock()
 
 	res, err := r.HelmClient.DeleteRelease(name)
-	fmt.Printf("Tiller delete response: %#v\n\n", res)
+
 	if err != nil {
-		fmt.Printf("ERROR Tiller delete response: %#v\n\n", err)
 		notFound, _ := regexp.MatchString("not found", err.Error())
 		if notFound {
-			fmt.Println("NOT FOUND")
+			r.logger.Log("info", fmt.Sprintf("Release not found, deletion is a noop: %#v", err))
 			return nil
 		}
 		return err

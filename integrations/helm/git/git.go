@@ -224,13 +224,16 @@ func getRepoAuth(privateKeyPath string) (*gitssh.PublicKeys, error) {
 	return auth, nil
 }
 
-func (ch *Checkout) pull() error {
+func (ch *Checkout) Pull() error {
 	w := ch.worktree
 	if w == nil {
 		return ErrNoRepoCloned
 	}
 	err := w.Pull(&gogit.PullOptions{RemoteName: "origin"})
-	return err
+	if err != nil && err != gogit.NoErrAlreadyUpToDate {
+		return err
+	}
+	return nil
 }
 
 /*

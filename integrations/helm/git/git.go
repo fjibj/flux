@@ -98,11 +98,15 @@ func (ch *Checkout) CloneAndCheckout(cloneSubdir string) error {
 		return ErrNoRepo
 	}
 
+	fmt.Println("\t\tstage 1")
+
 	repoDir, err := ioutil.TempDir(os.TempDir(), cloneSubdir)
 	if err != nil {
 		return err
 	}
 	ch.Dir = repoDir
+
+	fmt.Println("\t\tstage 2")
 
 	repo, err := gogit.PlainClone(repoDir, false, &gogit.CloneOptions{
 		URL:  ch.Config.URL,
@@ -113,10 +117,14 @@ func (ch *Checkout) CloneAndCheckout(cloneSubdir string) error {
 		return err
 	}
 
+	fmt.Println("\t\tstage 2")
+
 	wt, err := repo.Worktree()
 	if err != nil {
 		return err
 	}
+
+	fmt.Println("\t\tstage 3")
 
 	br := ch.Config.Branch
 	err = wt.Checkout(&gogit.CheckoutOptions{
@@ -125,6 +133,8 @@ func (ch *Checkout) CloneAndCheckout(cloneSubdir string) error {
 	if err != nil {
 		return err
 	}
+
+	fmt.Println("\t\tstage 4")
 
 	ch.repo = repo
 	ch.worktree = wt

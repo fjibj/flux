@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-kit/kit/log"
 	ifv1 "github.com/weaveworks/flux/apis/integrations.flux/v1"
+	helmgit "github.com/weaveworks/flux/integrations/helm/git"
 	//ifclientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
 )
 
@@ -24,22 +25,31 @@ var (
 	ErrChartGitPathMissing = "Chart deploy configuration (%q) has empty Chart git path"
 )
 
+type SyncType string
+
 // Release contains clients needed to provide functionality related to helm releases
 type Release struct {
-	logger log.Logger
-	//KubeClient *kubernetes.Clientset
-	//IfClient   *ifclientset.Clientset // client for integration.flux, ie for custom resources
+	logger     log.Logger
 	HelmClient *k8shelm.Client
+	repo       repo
 	sync.RWMutex
 }
 
+type repo struct {
+	fhrChange   *helmgit.Checkout
+	chartChange *helmgit.Checkout
+}
+
 // New creates a new Release instance
-func New(logger log.Logger, helmClient *k8shelm.Client) *Release {
+func New(logger log.Logger, helmClient *k8shelm.Client, fhrChangeCheckout *helmgit.Checkout, chartChangeCheckout *helmgit.Checkout) *Release {
+	repo := repo{
+		fhrChange:   fhrChangeCheckout,
+		chartChange: chartChangeCheckout,
+	}
 	r := &Release{
-		logger: log.With(logger, "component", "release"),
-		//KubeClient: kubeClient,
-		//IfClient:   ifClient,
+		logger:     log.With(logger, "component", "release"),
 		HelmClient: helmClient,
+		repo:       repo,
 	}
 
 	return r
@@ -83,6 +93,81 @@ func (r *Release) Get(name string) (*hapi_release.Release, error) {
 		return &hapi_release.Release{}, errors.New("NOT EXISTS")
 	}
 	return rls.Release, nil
+}
+
+// Create ... creates a new Chart release
+func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, releaseType SyncType) (hapi_release.Release, error) {
+	r.Lock()
+	defer r.Unlock()
+
+	chartPath := fhr.Spec.ChartGitPath
+	if chartPath == "" {
+		r.logger.Log("error", fmt.Sprintf(ErrChartGitPathMissing, fhr.GetName()))
+		return hapi_release.Release{}, fmt.Errorf(ErrChartGitPathMissing, fhr.GetName())
+	}
+
+	namespace := fhr.GetNamespace()
+	if namespace == "" {
+		namespace = "default"
+	}
+
+	repoDir := r.repo.fhrChange.Dir
+	chartDir := filepath.Join(repoDir, chartPath)
+
+	// load the chart to turn it into a Chart object
+	chart, err := chartutil.Load(chartDir)
+	if err != nil {
+		r.logger.Log("error", fmt.Sprintf("Cannot load Chart for release [%q]: %#v", releaseName, err))
+		return hapi_release.Release{}, fmt.Errorf("Cannot load Chart for release [%q]: %#v", releaseName, err)
+	}
+
+	rawVals, err := collectValues(fhr.Spec.Customizations)
+	if err != nil {
+		return hapi_release.Release{}, err
+	}
+
+	// INSTALLATION ----------------------------------------------------------------------
+	switch releaseType {
+	case "create":
+		res, err := r.HelmClient.InstallReleaseFromChart(
+			chart,
+			namespace,
+			k8shelm.ValueOverrides(rawVals),
+			/*
+				helm.UpgradeDryRun(u.dryRun),
+				helm.UpgradeRecreate(u.recreate),
+				helm.UpgradeForce(u.force),
+				helm.UpgradeDisableHooks(u.disableHooks),
+				helm.UpgradeTimeout(u.timeout),
+				helm.ResetValues(u.resetValues),
+				helm.ReuseValues(u.reuseValues),
+				helm.UpgradeWait(u.wait))
+			*/
+		)
+		if err != nil {
+			r.logger.Log("error", fmt.Sprintf("Chart release failed: %q: %#v", releaseName, err))
+			return hapi_release.Release{}, err
+		}
+		return *res.Release, nil
+	case "update":
+		res, err := r.HelmClient.UpdateRelease(
+			releaseName,
+			chartDir,
+			k8shelm.UpdateValueOverrides(rawVals),
+		//		helm.InstallDryRun(i.dryRun),
+		//		helm.InstallReuseName(i.replace),
+		//		helm.InstallDisableHooks(i.disableHooks),
+		//		helm.InstallTimeout(i.timeout),
+		//		helm.InstallWait(i.wait)
+		)
+		if err != nil {
+			r.logger.Log("error", fmt.Sprintf("Chart upgrade release failed: %q: %#v", releaseName, err))
+			return hapi_release.Release{}, err
+		}
+		return *res.Release, nil
+	}
+
+	return hapi_release.Release{}, nil
 }
 
 // Create ... creates a new Chart release

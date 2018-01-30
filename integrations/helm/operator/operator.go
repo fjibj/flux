@@ -26,7 +26,7 @@ import (
 	ifscheme "github.com/weaveworks/flux/integrations/client/clientset/versioned/scheme"
 	ifinformers "github.com/weaveworks/flux/integrations/client/informers/externalversions"
 	iflister "github.com/weaveworks/flux/integrations/client/listers/integrations/v1"
-	helmrelease "github.com/weaveworks/flux/integrations/helm/release"
+	chartrelease "github.com/weaveworks/flux/integrations/helm/release"
 )
 
 const controllerAgentName = "helm-operator"
@@ -58,7 +58,7 @@ type Controller struct {
 	fhrLister iflister.FluxHelmResourceLister
 	fhrSynced cache.InformerSynced
 
-	release *helmrelease.Release
+	release *chartrelease.Release
 
 	// workqueue is a rate limited work queue. This is used to queue work to be
 	// processed instead of performing it as soon as a change happens. This
@@ -78,7 +78,7 @@ func New(
 	kubeclientset kubernetes.Interface,
 	fhrclientset clientset.Interface,
 	fhrInformerFactory ifinformers.SharedInformerFactory,
-	release *helmrelease.Release) *Controller {
+	release *chartrelease.Release) *Controller {
 
 	// Obtain reference to shared index informers for the FluxHelmResource
 	fhrInformer := fhrInformerFactory.Integrations().V1().FluxHelmResources()
@@ -147,7 +147,7 @@ func New(
 			}
 			fmt.Printf("\n>>> DELETING release\n")
 			fmt.Printf("\t>>> deleted CR: %#v\n\n", old)
-			name := helmrelease.GetReleaseName(fhr)
+			name := chartrelease.GetReleaseName(fhr)
 			err := controller.deleteRelease(name)
 			if err != nil {
 				controller.logger.Log("error", fmt.Sprintf("Chart release [%q] not deleted: %#v", name, err))
@@ -296,23 +296,21 @@ func (c *Controller) syncHandler(key string) error {
 	if releaseName = fhr.Spec.ReleaseName; releaseName != "" {
 		releaseName = fmt.Sprintf("%q:%q", namespace, name)
 	}
-	/*
-		// find if release exists
-		chartRelease, err := c.release.Get(releaseName)
-		if err != nil && err.Error() == "NOT EXISTS" {
-			_, err := c.release.Create(releaseName, *fhr)
-			if err != nil {
-				return err
-			}
-			c.logger.Log("info", fmt.Sprintf("Created new Chart release: %q", releaseName))
-		} else {
-			_, err := c.release.Update(*chartRelease, *fhr)
-			if err != nil {
-				return err
-			}
-			c.logger.Log("info", fmt.Sprintf("Updated Chart release: %q", releaseName))
-		}
-	*/
+	// find if release exists
+	var syncType chartrelease.SyncType
+
+	_, err = c.release.Get(releaseName)
+	if err != nil && err.Error() == "NOT EXISTS" {
+		syncType = chartrelease.SyncType("CREATE")
+		c.logger.Log("info", fmt.Sprintf("Creating a new Chart release: %q", releaseName))
+	} else {
+		syncType = chartrelease.SyncType("UPDATE")
+		c.logger.Log("info", fmt.Sprintf("Updating Chart release: %q", releaseName))
+	}
+	_, err = c.release.Install(releaseName, *fhr, syncType)
+	if err != nil {
+		return err
+	}
 
 	c.recorder.Event(fhr, corev1.EventTypeNormal, ChartSynced, MessageChartSynced)
 	return nil

@@ -57,7 +57,6 @@ func tillerHost(kubeClient *kubernetes.Clientset, opts TillerOptions) (string, e
 
 	fmt.Printf("Tiller Options = : %#v\n", opts)
 
-	// TODO: check the options during tiller setup
 	if opts.IP == "" {
 		ts, err = kubeClient.CoreV1().Services(opts.Namespace).Get("tiller-deploy", metav1.GetOptions{})
 		if err != nil {

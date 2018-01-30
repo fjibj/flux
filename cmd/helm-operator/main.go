@@ -302,7 +302,7 @@ func main() {
 	go ifInformerFactory.Start(shutdown)
 
 	// OPERATOR -----------------------------------------------------------------------------
-	rel := release.New(log.With(logger, "component", "release"), helmClient)
+	rel := release.New(log.With(logger, "component", "release"), helmClient, checkoutFhr, checkoutCh)
 	opr := operator.New(log.With(logger, "component", "operator"), kubeClient, ifClient, ifInformerFactory, rel)
 	if err = opr.Run(2, shutdown); err != nil {
 		msg := fmt.Sprintf("Failure to run controller: %s", err.Error())

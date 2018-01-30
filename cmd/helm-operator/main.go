@@ -167,13 +167,20 @@ func main() {
 	mainLogger := log.With(logger, "component", "helm-operator")
 	mainLogger.Log("info", "!!! I am functional! !!!")
 
-	// Git repo info
-	gitRemoteConfig, err := git.NewGitRemoteConfig(*gitURL, *gitBranch, *gitConfigPath, *gitChartsPath)
+	mainLogger.Log("info", "\t*** Setting up git repo configs")
+	gitRemoteConfigFhr, err := git.NewGitRemoteConfig(*gitURL, *gitBranch, *gitConfigPath)
 	if err != nil {
-		logger.Log("err", err)
+		mainLogger.Log("err", err)
 		os.Exit(1)
 	}
-	fmt.Printf("%#v", gitRemoteConfig)
+	fmt.Printf("%#v", gitRemoteConfigFhr)
+	gitRemoteConfigCh, err := git.NewGitRemoteConfig(*gitURL, *gitBranch, *gitChartsPath)
+	if err != nil {
+		mainLogger.Log("err", err)
+		os.Exit(1)
+	}
+	fmt.Printf("%#v", gitRemoteConfigCh)
+	mainLogger.Log("info", "\t*** Finished setting up git repo configs")
 
 	// ----------------------------------------------------------------------
 	// set up cluster configuration
@@ -188,7 +195,6 @@ func main() {
 		errc <- fmt.Errorf("Error building kubernetes clientset: %v", err)
 	}
 
-	//helmClient, err := fluxhelm.NewClient(kubeClient, fluxhelm.TillerOptions{Namespace: *tillerNamespace})
 	helmClient, err := fluxhelm.NewClient(kubeClient, fluxhelm.TillerOptions{IP: *tillerIP, Port: *tillerPort, Namespace: *tillerNamespace})
 	if err != nil {
 		mainLogger.Log("error", fmt.Sprintf("Error creating helm client: %v", err))
@@ -213,7 +219,8 @@ func main() {
 
 	ifClient, err := clientset.NewForConfig(cfg)
 	if err != nil {
-		glog.Fatalf("Error building integrations clientset: %v", err)
+		mainLogger.Log("error", fmt.Sprintf("Error building integrations clientset: %v", err))
+		errc <- fmt.Errorf("Error building integrations clientset: %v", err)
 	}
 	// ----------------------------------------------------------------------
 	chartSelector := map[string]string{
@@ -255,7 +262,37 @@ func main() {
 		fmt.Println("-----------------------------------------------------")
 
 	}
-	//---------------------------------------------------------------
+	/*
+		// GIT REPO SETUP -----------------------------------------------------------------------
+		mainLogger.Log("info", "\t*** Starting to clone repos")
+		//ctx, cancel := context.WithTimeout(context.Background(), git.DefaultCloneTimeout)
+		// 		Chart releases sync due to Custom Resources changes -------------------------------
+		checkoutFhr, err := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigFhr, *k8sSecretVolumeMountPath, *k8sSecretDataKey)
+		if err != nil {
+			mainLogger.Log("error", fmt.Sprintf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err))
+			errc <- fmt.Errorf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err)
+		}
+
+		err = checkoutFhr.CloneAndCheckout(git.FhrChangesClone)
+		if err != nil {
+			mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%#v]: %v", gitRemoteConfigFhr, err))
+			errc <- fmt.Errorf("Failed to clone git [%#v]: %v", gitRemoteConfigFhr, err)
+		}
+		// 		Chart releases sync due to pure Charts changes ------------------------------------
+		checkoutCh, err := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigCh, *k8sSecretVolumeMountPath, *k8sSecretDataKey)
+		if err != nil {
+			mainLogger.Log("error", fmt.Sprintf("Failed to create Checkout [%#v]: %v", gitRemoteConfigCh, err))
+			errc <- fmt.Errorf("Failed to create Checkout [%#v]: %v", gitRemoteConfigCh, err)
+		}
+		err = checkoutCh.CloneAndCheckout(git.ChartsChangesClone)
+		if err != nil {
+			mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%#v]: %v", gitRemoteConfigCh, err))
+			errc <- fmt.Errorf("Failed to clone git repo [%#v]: %v", gitRemoteConfigCh, err)
+		}
+		mainLogger.Log("info", "\t*** Cloned repos")
+		//---------------------------------------------------------------
+	*/
+
 	ifInformerFactory := ifinformers.NewSharedInformerFactory(ifClient, time.Second*30)
 	go ifInformerFactory.Start(shutdown)
 
@@ -275,28 +312,3 @@ func optionalVar(fs *pflag.FlagSet, value ssh.OptionalValue, name, usage string)
 	fs.Var(value, name, usage)
 	return value
 }
-
-/*
-func setUpHelmClient(kubeClient *kubernetes.Clientset) (*k8shelm.Client, error) {
-	ts, err := kubeClient.CoreV1().Services("kube-system").Get("tiller-deploy", metav1.GetOptions{})
-	if err != nil {
-		return &fluxhelm.Helm{}, fmt.Errorf("Tiller server error: %v", err)
-	}
-
-	tillerIP := ts.Spec.ClusterIP
-	fmt.Printf("TILLER SERVICE IP=%#v\n", tillerIP)
-	port := ts.Spec.Ports[0].Port
-	fmt.Printf("TILLER SERVICE port=%#v\n", port)
-
-	opts := fluxhelm.TillerOptions{
-		IP:   tillerIP,
-		Port: fmt.Sprintf("%v", port),
-	}
-
-	hlm := fluxhelm.New(logger, opts)
-	if err != nil {
-		return &fluxhelm.Helm{}, fmt.Errorf("Cannot create helm client: %v", err)
-	}
-	return hlm, nil
-}
-*/

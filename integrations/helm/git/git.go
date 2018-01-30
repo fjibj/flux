@@ -1,21 +1,26 @@
 package git
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
+	"path"
 	"sync"
 	"time"
 
+	"github.com/go-kit/kit/log"
+	"golang.org/x/crypto/ssh"
 	gogit "gopkg.in/src-d/go-git.v4"
 	"gopkg.in/src-d/go-git.v4/plumbing"
+	gitssh "gopkg.in/src-d/go-git.v4/plumbing/transport/ssh"
 )
 
 const (
 	DefaultCloneTimeout = 2 * time.Minute
+	privateKeyFileMode  = os.FileMode(0400)
+	FhrChangesClone     = "fhr_sync_gitclone"
+	ChartsChangesClone  = "charts_sync_gitclone"
 )
 
 var (
@@ -25,39 +30,57 @@ var (
 )
 
 type GitRemoteConfig struct {
-	URL        string `json:"url"`
-	Branch     string `json:"branch"`
-	ConfigPath string `json:"config-path"`
-	ChartsPath string `json:"charts-path"`
-}
-
-// Repo represents a (remote) git repo.
-type Repo struct {
-	GitRemoteConfig
+	URL    string `json:"url"`
+	Branch string `json:"branch"`
+	Path   string `json:"path"`
 }
 
 // Checkout is a local clone of the remote repo.
 type Checkout struct {
-	logger   log.Logger
-	Config   GitRemoteConfig
-	Dir      string
-	repo     *gogit.Repository
-	worktree *gogit.Worktree
+	Logger         log.Logger
+	Config         GitRemoteConfig // remote repo info provided by the user
+	privateKeyPath string
+	auth           *gitssh.PublicKeys
+	Dir            string            // directory where the repo was cloned
+	repo           *gogit.Repository // cloned repo info
+	worktree       *gogit.Worktree
 	sync.RWMutex
 }
 
-func NewGitRemoteConfig(url, branch, configPath, chartsPath string) (GitRemoteConfig, error) {
-	if len(configPath) == 0 || configPath[0] == '/' {
-		return GitRemoteConfig{}, errors.New("git subdirectory (--git-config-path) must be given and cannot have leading forward slash")
+// NewGitRemoteConfig ... sets up git repo configuration.
+func NewGitRemoteConfig(url, branch, path string) (GitRemoteConfig, error) {
+	if len(url) == 0 {
+		return GitRemoteConfig{}, errors.New("git repo URL must be provided")
 	}
-	if len(chartsPath) == 0 || chartsPath[0] == '/' {
-		return GitRemoteConfig{}, errors.New("git subdirectory (--git-charts-path) must be given and cannot have leading forward slash")
+	if len(branch) == 0 {
+		branch = "master"
 	}
+	if len(path) != 0 && path[0] == '/' {
+		return GitRemoteConfig{}, errors.New("git subdirectory (--git-config-path) if given and cannot have leading forward slash")
+	}
+
 	return GitRemoteConfig{
-		URL:        url,
-		Branch:     branch,
-		ConfigPath: configPath,
-		ChartsPath: chartsPath,
+		URL:    url,
+		Branch: branch,
+		Path:   path,
+	}, nil
+}
+
+// NewCheckout ... creates a Checkout instance
+//		populates also private fields relating to ssh authentication
+func NewCheckout(logger log.Logger, config GitRemoteConfig, k8sSecretVolumeMountPath, k8sSecretDataKey string) (*Checkout, error) {
+	privateKeyPath := path.Join(k8sSecretVolumeMountPath, k8sSecretDataKey)
+	auth, err := getRepoAuth(privateKeyPath)
+	if err != nil {
+		logger.Log("error", fmt.Sprintf("Failure to get git repo auth = %v", err))
+		return &Checkout{}, err
+	}
+	logger.Log("info", fmt.Sprintf("      auth = %v", auth))
+	return &Checkout{
+		Logger:         logger,
+		Config:         config,
+		privateKeyPath: privateKeyPath,
+		auth:           auth,
 	}, nil
 }
 
@@ -67,7 +90,7 @@ func NewGitRemoteConfig(url, branch, configPath, chartsPath string) (GitRemoteCo
 //																		* acting on Custom Resource change
 //																		* acting on Charts changes (syncing the cluster when there were only commits
 //																		  in the Charts parts of the repo which did not trigger Custom Resource changes)
-func (ch *Checkout) CloneAndCheckout(ctx context.Context, cloneSubdir string) error {
+func (ch *Checkout) CloneAndCheckout(cloneSubdir string) error {
 	ch.Lock()
 	defer ch.Unlock()
 
@@ -79,13 +102,14 @@ func (ch *Checkout) CloneAndCheckout(ctx context.Context, cloneSubdir string) er
 	if err != nil {
 		return err
 	}
-
 	ch.Dir = repoDir
 
 	repo, err := gogit.PlainClone(repoDir, false, &gogit.CloneOptions{
-		URL: ch.Config.URL,
+		URL:  ch.Config.URL,
+		Auth: ch.auth,
 	})
-	if err != nil && err != gogit.ErrRepositoryAlreadyExists {
+	//if err != nil && err != gogit.ErrRepositoryAlreadyExists {
+	if err != nil {
 		return err
 	}
 
@@ -95,9 +119,6 @@ func (ch *Checkout) CloneAndCheckout(ctx context.Context, cloneSubdir string) er
 	}
 
 	br := ch.Config.Branch
-	if br == "" {
-		br = "master"
-	}
 	err = wt.Checkout(&gogit.CheckoutOptions{
 		Branch: plumbing.ReferenceName(fmt.Sprintf("refs/heads/%s", br)),
 	})
@@ -111,7 +132,7 @@ func (ch *Checkout) CloneAndCheckout(ctx context.Context, cloneSubdir string) er
 	return nil
 }
 
-// Cleanup removes the temp repo directory
+// Cleanup ... removes the temp repo directory
 func (ch *Checkout) Cleanup() {
 	ch.Lock()
 	defer ch.Unlock()
@@ -159,6 +180,39 @@ func (ch *Checkout) ChangedCharts(crs []ifv1.FluxHelmResource) ([]ifv1.FluxHelmR
 	return []ifv1.FluxHelmResource{}, nil
 }
 */
+
+// CloneLoop ... tries until the repo is cloned
+func (ch *Checkout) CloneLoop(cloneSubdir string, chanDone chan struct{}) {
+	return
+}
+
+// GetRepoAuth ... provides git repo authentication based on private ssh key
+func getRepoAuth(privateKeyPath string) (*gitssh.PublicKeys, error) {
+	fileInfo, err := os.Stat(privateKeyPath)
+	switch {
+	case os.IsNotExist(err):
+		return &gitssh.PublicKeys{}, err
+	case err != nil:
+		return &gitssh.PublicKeys{}, err
+	case fileInfo.Mode() != privateKeyFileMode:
+		if err := os.Chmod(privateKeyPath, privateKeyFileMode); err != nil {
+			return &gitssh.PublicKeys{}, err
+		}
+	default:
+	}
+
+	sshKey, err := ioutil.ReadFile(privateKeyPath)
+	if err != nil {
+		return nil, err
+	}
+	signer, err := ssh.ParsePrivateKey([]byte(sshKey))
+	if err != nil {
+		return nil, err
+	}
+	auth := &gitssh.PublicKeys{User: "git", Signer: signer}
+
+	return auth, nil
+}
 
 func (ch *Checkout) pull() error {
 	w := ch.worktree

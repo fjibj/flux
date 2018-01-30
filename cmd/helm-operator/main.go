@@ -135,7 +135,7 @@ func main() {
 
 	fs.Parse(os.Args)
 
-	// Set up logging
+	// LOGGING ------------------------------------------------------------------------------
 	{
 		logger = log.NewLogfmtLogger(os.Stderr)
 		logger = log.With(logger, "ts", log.DefaultTimestampUTC)
@@ -143,7 +143,7 @@ func main() {
 	}
 	// ----------------------------------------------------------------------
 
-	// Set up shutdown
+	// SHUTDOWN  ----------------------------------------------------------------------------
 	errc := make(chan error)
 
 	// Shutdown trigger for goroutines
@@ -167,6 +167,7 @@ func main() {
 	mainLogger := log.With(logger, "component", "helm-operator")
 	mainLogger.Log("info", "!!! I am functional! !!!")
 
+	// GIT REPO CONFIG ----------------------------------------------------------------------
 	mainLogger.Log("info", "\t*** Setting up git repo configs")
 	gitRemoteConfigFhr, err := git.NewGitRemoteConfig(*gitURL, *gitBranch, *gitConfigPath)
 	if err != nil {
@@ -182,8 +183,7 @@ func main() {
 	fmt.Printf("%#v", gitRemoteConfigCh)
 	mainLogger.Log("info", "\t*** Finished setting up git repo configs")
 
-	// ----------------------------------------------------------------------
-	// set up cluster configuration
+	// CLUSTER ACCESS -----------------------------------------------------------------------
 	cfg, err := clientcmd.BuildConfigFromFlags(*master, *kubeconfig)
 	if err != nil {
 		mainLogger.Log("info", fmt.Sprintf("Error building kubeconfig: %v", err))
@@ -195,12 +195,15 @@ func main() {
 		errc <- fmt.Errorf("Error building kubernetes clientset: %v", err)
 	}
 
+	// HELM ---------------------------------------------------------------------------------
 	helmClient, err := fluxhelm.NewClient(kubeClient, fluxhelm.TillerOptions{IP: *tillerIP, Port: *tillerPort, Namespace: *tillerNamespace})
 	if err != nil {
 		mainLogger.Log("error", fmt.Sprintf("Error creating helm client: %v", err))
 		errc <- fmt.Errorf("Error creating helm client: %v", err)
 	}
 	mainLogger.Log("info", "Set up helmClient")
+
+	// TESTING ------------------------------------------------------------------------------
 	res, err := helmClient.ListReleases(
 	//k8shelm.ReleaseListLimit(10),
 	//k8shelm.ReleaseListOffset(l.offset),
@@ -216,13 +219,16 @@ func main() {
 	for _, rls := range res.GetReleases() {
 		fmt.Printf("\t\t*** RELEASE %#v\n\t\t\t%#v\n", rls.GetName(), rls.GetInfo())
 	}
+	//---------------------------------------------------------------------------------------
 
+	// CUSTOM RESOURCES ----------------------------------------------------------------------
 	ifClient, err := clientset.NewForConfig(cfg)
 	if err != nil {
 		mainLogger.Log("error", fmt.Sprintf("Error building integrations clientset: %v", err))
 		errc <- fmt.Errorf("Error building integrations clientset: %v", err)
 	}
-	// ----------------------------------------------------------------------
+
+	// TESTING ------------------------------------------------------------------------------
 	chartSelector := map[string]string{
 		"chart": "charts_helloworld",
 	}
@@ -238,9 +244,6 @@ func main() {
 
 	for _, fhr := range list.Items {
 		fmt.Println("=============== START OF LABEL FILTERING ================")
-		fmt.Println("-----------------------------------------------------")
-		fmt.Printf("fluxhelmresource %s:\n\n%#v\n", fhr.Name, fhr)
-		fmt.Println("-----------------------------------------------------")
 
 		fmt.Printf("fluxhelmresource %s for chart path %q and release name [%s] with customizations %#v\n", fhr.Name, fhr.Spec.ChartGitPath, fhr.Spec.ReleaseName, fhr.Spec.Customizations)
 
@@ -262,7 +265,9 @@ func main() {
 		fmt.Println("-----------------------------------------------------")
 
 	}
-	// GIT REPO SETUP -----------------------------------------------------------------------
+	//---------------------------------------------------------------------------------------
+
+	// GIT REPO CLONING -----------------------------------------------------------------------
 	mainLogger.Log("info", "\t*** Starting to clone repos")
 	//ctx, cancel := context.WithTimeout(context.Background(), git.DefaultCloneTimeout)
 	// 		Chart releases sync due to Custom Resources changes -------------------------------
@@ -291,12 +296,12 @@ func main() {
 		errc <- fmt.Errorf("Failed to clone git repo [%#v]: %v", gitRemoteConfigCh, err)
 	}
 	mainLogger.Log("info", "\t*** Cloned repos")
-	//---------------------------------------------------------------
 
+	// CUSTOM RESOURCES CACHING SETUP -------------------------------------------------------
 	ifInformerFactory := ifinformers.NewSharedInformerFactory(ifClient, time.Second*30)
 	go ifInformerFactory.Start(shutdown)
 
-	// ---------- Spin up the Operator ----------
+	// OPERATOR -----------------------------------------------------------------------------
 	rel := release.New(log.With(logger, "component", "release"), helmClient)
 	opr := operator.New(log.With(logger, "component", "operator"), kubeClient, ifClient, ifInformerFactory, rel)
 	if err = opr.Run(2, shutdown); err != nil {
@@ -304,7 +309,7 @@ func main() {
 		logger.Log("error", msg)
 		errc <- fmt.Errorf(ErrOperatorFailure, err)
 	}
-	// -------------------------------------------
+	//---------------------------------------------------------------------------------------
 }
 
 // Helper functions

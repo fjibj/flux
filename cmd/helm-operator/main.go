@@ -262,36 +262,42 @@ func main() {
 		fmt.Println("-----------------------------------------------------")
 
 	}
+	// GIT REPO SETUP -----------------------------------------------------------------------
+	mainLogger.Log("info", "\t*** Starting to clone repos")
+	//ctx, cancel := context.WithTimeout(context.Background(), git.DefaultCloneTimeout)
+	// 		Chart releases sync due to Custom Resources changes -------------------------------
+	checkoutFhr, err := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigFhr, *k8sSecretVolumeMountPath, *k8sSecretDataKey)
+	if err != nil {
+		mainLogger.Log("error", fmt.Sprintf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err))
+		errc <- fmt.Errorf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err)
+	}
+	fmt.Printf("\t\tcheckoutFhr=%#v\n", checkoutFhr)
 	/*
-		// GIT REPO SETUP -----------------------------------------------------------------------
-		mainLogger.Log("info", "\t*** Starting to clone repos")
-		//ctx, cancel := context.WithTimeout(context.Background(), git.DefaultCloneTimeout)
-		// 		Chart releases sync due to Custom Resources changes -------------------------------
-		checkoutFhr, err := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigFhr, *k8sSecretVolumeMountPath, *k8sSecretDataKey)
-		if err != nil {
-			mainLogger.Log("error", fmt.Sprintf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err))
-			errc <- fmt.Errorf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err)
-		}
-
 		err = checkoutFhr.CloneAndCheckout(git.FhrChangesClone)
 		if err != nil {
 			mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%#v]: %v", gitRemoteConfigFhr, err))
 			errc <- fmt.Errorf("Failed to clone git [%#v]: %v", gitRemoteConfigFhr, err)
 		}
-		// 		Chart releases sync due to pure Charts changes ------------------------------------
-		checkoutCh, err := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigCh, *k8sSecretVolumeMountPath, *k8sSecretDataKey)
-		if err != nil {
-			mainLogger.Log("error", fmt.Sprintf("Failed to create Checkout [%#v]: %v", gitRemoteConfigCh, err))
-			errc <- fmt.Errorf("Failed to create Checkout [%#v]: %v", gitRemoteConfigCh, err)
-		}
+	*/
+
+	// 		Chart releases sync due to pure Charts changes ------------------------------------
+	checkoutCh, err := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigCh, *k8sSecretVolumeMountPath, *k8sSecretDataKey)
+	if err != nil {
+		mainLogger.Log("error", fmt.Sprintf("Failed to create Checkout [%#v]: %v", gitRemoteConfigCh, err))
+		errc <- fmt.Errorf("Failed to create Checkout [%#v]: %v", gitRemoteConfigCh, err)
+	}
+	fmt.Printf("\t\tcheckoutChr=%#v\n", checkoutCh)
+	/*
 		err = checkoutCh.CloneAndCheckout(git.ChartsChangesClone)
 		if err != nil {
 			mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%#v]: %v", gitRemoteConfigCh, err))
 			errc <- fmt.Errorf("Failed to clone git repo [%#v]: %v", gitRemoteConfigCh, err)
 		}
-		mainLogger.Log("info", "\t*** Cloned repos")
-		//---------------------------------------------------------------
 	*/
+	mainLogger.Log("info", "\t*** Cloned repos")
+	//---------------------------------------------------------------
+	/*
+	 */
 
 	ifInformerFactory := ifinformers.NewSharedInformerFactory(ifClient, time.Second*30)
 	go ifInformerFactory.Start(shutdown)

@@ -11,7 +11,6 @@ import (
 
 	//	"k8s.io/client-go/kubernetes"
 
-	"k8s.io/helm/pkg/chartutil"
 	k8shelm "k8s.io/helm/pkg/helm"
 	hapi_release "k8s.io/helm/pkg/proto/hapi/release"
 
@@ -22,7 +21,7 @@ import (
 )
 
 var (
-	ErrChartGitPathMissing = "Chart deploy configuration (%q) has empty Chart git path"
+	ErrChartGitPathMissing = "Chart deploy configuration (%s) has empty Chart git path"
 )
 
 // ReleaseType determines whether we are making a new Chart release or updating an existing one
@@ -64,19 +63,35 @@ func GetReleaseName(fhr ifv1.FluxHelmResource) string {
 		namespace = "default"
 	}
 	releaseName := fhr.Spec.ReleaseName
+	fmt.Printf("---> release name from fhr.Spec.ReleaseName: %s\n", releaseName)
 	if releaseName == "" {
-		releaseName = fmt.Sprintf("%s-%s", namespace, fhr.Name)
+		releaseName = fmt.Sprintf("%s.%s", namespace, fhr.Name)
 	}
+	fmt.Printf("---> final release name: %s\n", releaseName)
+
 	return releaseName
 }
 
 // Get ... detects if a particular Chart release exists
+// 		release name must match regex ^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])+$
 func (r *Release) Get(name string) (*hapi_release.Release, error) {
+	fmt.Printf("\t*** release name: %s ***\n", name)
 	rls, err := r.HelmClient.ReleaseContent(name)
 
 	// TODO: see what errors can be returned
+	r.logger.Log("info", fmt.Sprintf("+++ Getting release: rls = %#v", rls))
+
 	if err != nil {
-		r.logger.Log("error", fmt.Sprintf("%#v", err))
+		notFound, _ := regexp.MatchString("not found", err.Error())
+
+		r.logger.Log("info", fmt.Sprintf("+++ Get release error: error = %v (%s)", err.Error(), err.Error()))
+		r.logger.Log("info", fmt.Sprintf("+++ Get release error: notFound = %v", notFound))
+
+		if notFound {
+			r.logger.Log("info", fmt.Sprintf("Release [%s]: %s", name, err.Error()))
+			return &hapi_release.Release{}, errors.New("NOT EXISTS")
+		}
+		r.logger.Log("error", fmt.Sprintf("Release name [%s] : %#v", name, err))
 		return &hapi_release.Release{}, err
 	}
 	/*
@@ -92,8 +107,8 @@ func (r *Release) Get(name string) (*hapi_release.Release, error) {
 	*/
 	rst := rls.Release.Info.Status.GetCode()
 	if rst != 1 {
-		r.logger.Log("error", fmt.Sprintf("Release (%q) status: %#v", name, rst.String()))
-		return &hapi_release.Release{}, errors.New("NOT EXISTS")
+		r.logger.Log("error", fmt.Sprintf("Release [%s] status: %#v", name, rst.String()))
+		return &hapi_release.Release{}, fmt.Errorf("Release [%s] status: %#v", name, rst.String())
 	}
 	return rls.Release, nil
 }
@@ -103,6 +118,8 @@ func (r *Release) Get(name string) (*hapi_release.Release, error) {
 func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, releaseType ReleaseType) (hapi_release.Release, error) {
 	r.Lock()
 	defer r.Unlock()
+
+	r.logger.Log("info", fmt.Sprintf("     input: releaseName= %s, releaseType=%s", releaseName, releaseType))
 
 	chartPath := fhr.Spec.ChartGitPath
 	if chartPath == "" {
@@ -119,15 +136,8 @@ func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, release
 	if err != nil {
 		return hapi_release.Release{}, err
 	}
-	repoDir := r.repo.fhrChange.Dir
-	chartDir := filepath.Join(repoDir, chartPath)
 
-	// load the chart to turn it into a Chart object
-	chart, err := chartutil.Load(chartDir)
-	if err != nil {
-		r.logger.Log("error", fmt.Sprintf("Cannot load Chart for release [%q]: %#v", releaseName, err))
-		return hapi_release.Release{}, fmt.Errorf("Cannot load Chart for release [%q]: %#v", releaseName, err)
-	}
+	chartDir := filepath.Join(r.repo.fhrChange.Dir, chartPath)
 
 	rawVals, err := collectValues(fhr.Spec.Customizations)
 	if err != nil {
@@ -137,10 +147,29 @@ func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, release
 	// INSTALLATION ----------------------------------------------------------------------
 	switch releaseType {
 	case "CREATE":
-		res, err := r.HelmClient.InstallReleaseFromChart(
-			chart,
+		res, err := r.HelmClient.InstallRelease(
+			chartDir,
 			namespace,
 			k8shelm.ValueOverrides(rawVals),
+			k8shelm.ReleaseName(releaseName),
+			/*
+				helm.InstallDryRun(i.dryRun),
+				helm.InstallReuseName(i.replace),
+				helm.InstallDisableHooks(i.disableHooks),
+				helm.InstallTimeout(i.timeout),
+				helm.InstallWait(i.wait)
+			*/
+		)
+		if err != nil {
+			r.logger.Log("error", fmt.Sprintf("Chart release failed: %s: %#v", releaseName, err))
+			return hapi_release.Release{}, err
+		}
+		return *res.Release, nil
+	case "UPDATE":
+		res, err := r.HelmClient.UpdateRelease(
+			releaseName,
+			chartDir,
+			k8shelm.UpdateValueOverrides(rawVals),
 			/*
 				helm.UpgradeDryRun(u.dryRun),
 				helm.UpgradeRecreate(u.recreate),
@@ -151,25 +180,10 @@ func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, release
 				helm.ReuseValues(u.reuseValues),
 				helm.UpgradeWait(u.wait))
 			*/
+
 		)
 		if err != nil {
-			r.logger.Log("error", fmt.Sprintf("Chart release failed: %q: %#v", releaseName, err))
-			return hapi_release.Release{}, err
-		}
-		return *res.Release, nil
-	case "UPDATE":
-		res, err := r.HelmClient.UpdateRelease(
-			releaseName,
-			chartDir,
-			k8shelm.UpdateValueOverrides(rawVals),
-		//		helm.InstallDryRun(i.dryRun),
-		//		helm.InstallReuseName(i.replace),
-		//		helm.InstallDisableHooks(i.disableHooks),
-		//		helm.InstallTimeout(i.timeout),
-		//		helm.InstallWait(i.wait)
-		)
-		if err != nil {
-			r.logger.Log("error", fmt.Sprintf("Chart upgrade release failed: %q: %#v", releaseName, err))
+			r.logger.Log("error", fmt.Sprintf("Chart upgrade release failed: %s: %#v", releaseName, err))
 			return hapi_release.Release{}, err
 		}
 		return *res.Release, nil
@@ -184,7 +198,7 @@ func (r *Release) Delete(name string) error {
 	r.Lock()
 	defer r.Unlock()
 
-	res, err := r.HelmClient.DeleteRelease(name)
+	_, err := r.HelmClient.DeleteRelease(name)
 
 	if err != nil {
 		notFound, _ := regexp.MatchString("not found", err.Error())
@@ -194,7 +208,7 @@ func (r *Release) Delete(name string) error {
 		}
 		return err
 	}
-	r.logger.Log("info", fmt.Sprintf("Release deleted: %q", res.Info))
+	r.logger.Log("info", fmt.Sprintf("Release deleted: [%s]", name))
 	return nil
 }
 

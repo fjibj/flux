@@ -75,7 +75,7 @@ func NewCheckout(logger log.Logger, config GitRemoteConfig, k8sSecretVolumeMount
 		logger.Log("error", fmt.Sprintf("Failure to get git repo auth = %v", err))
 		return &Checkout{}, err
 	}
-	logger.Log("info", fmt.Sprintf("      auth = %v", auth))
+	logger.Log("info", fmt.Sprintf("auth = %v", auth))
 	return &Checkout{
 		Logger:         logger,
 		Config:         config,
@@ -229,7 +229,10 @@ func (ch *Checkout) Pull() error {
 	if w == nil {
 		return ErrNoRepoCloned
 	}
-	err := w.Pull(&gogit.PullOptions{RemoteName: "origin"})
+	err := w.Pull(&gogit.PullOptions{
+		RemoteName: "origin",
+		Auth:       ch.auth,
+	})
 	if err != nil && err != gogit.NoErrAlreadyUpToDate {
 		return err
 	}

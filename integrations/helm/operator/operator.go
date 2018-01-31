@@ -43,7 +43,7 @@ const (
 	MessageChartSynced = "Chart managed by FluxHelmResource released/updated successfully"
 	// MessageErrChartSync - the message used for an Event fired when a FluxHelmResource
 	// is synced successfully
-	MessageErrChartSync = "Chart %q managed by FluxHelmResource failed to be released/updated"
+	MessageErrChartSync = "Chart %s managed by FluxHelmResource failed to be released/updated"
 )
 
 // Controller is the operator implementation for FluxHelmResource resources
@@ -149,7 +149,7 @@ func New(
 			name := chartrelease.GetReleaseName(fhr)
 			err := controller.deleteRelease(name)
 			if err != nil {
-				controller.logger.Log("error", fmt.Sprintf("Chart release [%q] not deleted: %#v", name, err))
+				controller.logger.Log("error", fmt.Sprintf("Chart release [%s] not deleted: %#v", name, err))
 			}
 		},
 	})
@@ -269,13 +269,15 @@ func (c *Controller) processNextWorkItem() bool {
 }
 
 // syncHandler acts according to the action
+// 		Deletes/creates or updates a Chart release
 //------------------------------------------------------------------------
 func (c *Controller) syncHandler(key string) error {
-	c.logger.Log("info", "!!! in syncHandler")
+	c.logger.Log("info", "*** in syncHandler")
 
-	// Convert the namespace/name string into a distinct namespace and name
+	// Retrieve namespace and Custom Resource name from the key
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
+		c.logger.Log("info", fmt.Sprintf("problem with cache key: %v", err))
 		runtime.HandleError(fmt.Errorf("invalid resource key: %s", key))
 		return nil
 	}
@@ -284,28 +286,32 @@ func (c *Controller) syncHandler(key string) error {
 	fhr, err := c.fhrLister.FluxHelmResources(namespace).Get(name)
 	if err != nil {
 		if errors.IsNotFound(err) {
+			c.logger.Log("info", fmt.Sprintf("fluxhelmresource '%s' in work queue no longer exists", key))
 			runtime.HandleError(fmt.Errorf("fluxhelmresource '%s' in work queue no longer exists", key))
 			return nil
 		}
+		c.logger.Log("error", err.Error())
 		return err
 	}
 
-	// get Chart release name
-	var releaseName string
-	if releaseName = fhr.Spec.ReleaseName; releaseName != "" {
-		releaseName = fmt.Sprintf("%q:%q", namespace, name)
-	}
+	releaseName := chartrelease.GetReleaseName(*fhr)
 	// find if release exists
-	var syncType chartrelease.ReleaseType
+	rls, err := c.release.Get(releaseName)
+	c.logger.Log("info", fmt.Sprintf("+++++ Getting release: rls = %#v", rls))
+	c.logger.Log("info", fmt.Sprintf("+++++ Getting release: error = %#v", err))
+	c.logger.Log("info", fmt.Sprintf("+++++ Getting release: err.Error() = %#v", err.Error()))
 
-	_, err = c.release.Get(releaseName)
-	if err != nil && err.Error() == "NOT EXISTS" {
-		syncType = chartrelease.ReleaseType("CREATE")
-		c.logger.Log("info", fmt.Sprintf("Creating a new Chart release: %q", releaseName))
-	} else {
-		syncType = chartrelease.ReleaseType("UPDATE")
-		c.logger.Log("info", fmt.Sprintf("Updating Chart release: %q", releaseName))
+	var syncType chartrelease.ReleaseType
+	if err != nil {
+		if err.Error() == "NOT EXISTS" {
+			syncType = chartrelease.ReleaseType("CREATE")
+			c.logger.Log("info", fmt.Sprintf("Creating a new Chart release: %s", releaseName))
+		} else {
+			c.logger.Log("error", fmt.Sprintf("Failure to do Chart release [%s]: %#v", releaseName, err))
+			return err
+		}
 	}
+	syncType = chartrelease.ReleaseType("UPDATE")
 	_, err = c.release.Install(releaseName, *fhr, syncType)
 	if err != nil {
 		return err

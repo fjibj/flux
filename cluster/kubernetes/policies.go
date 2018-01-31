@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"fmt"
 	"io/ioutil"
 	"regexp"
 	"strings"
@@ -15,18 +16,49 @@ import (
 
 func (m *Manifests) UpdatePolicies(in []byte, update policy.Update) ([]byte, error) {
 	tagAll, _ := update.Add.Get(policy.TagAll)
-	return updateAnnotations(in, tagAll, func(a map[string]string) map[string]string {
-		for p, v := range update.Add {
-			if p == policy.TagAll {
-				continue
+
+	var b []byte
+	resources, err := resource.ParseMultidoc(in, "update")
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, r := range resources {
+		u, err := updateAnnotations(r.Bytes(), tagAll, func(a map[string]string) map[string]string {
+			for p, v := range update.Add {
+				if p == policy.TagAll {
+					continue
+				}
+				a[resource.PolicyPrefix+string(p)] = v
 			}
-			a[resource.PolicyPrefix+string(p)] = v
+			for p, _ := range update.Remove {
+				delete(a, resource.PolicyPrefix+string(p))
+			}
+			return a
+		})
+
+		if err != nil {
+			return nil, err
 		}
-		for p, _ := range update.Remove {
-			delete(a, resource.PolicyPrefix+string(p))
-		}
-		return a
-	})
+
+		b = append(b, u...)
+	}
+
+	return b, nil
+
+	// return updateAnnotations(in, tagAll, func(a map[string]string) map[string]string {
+	// 	for p, v := range update.Add {
+	// 		if p == policy.TagAll {
+	// 			continue
+	// 		}
+	// 		a[resource.PolicyPrefix+string(p)] = v
+	// 	}
+	// 	for p, _ := range update.Remove {
+	// 		delete(a, resource.PolicyPrefix+string(p))
+	// 	}
+	// 	return a
+	// })
 }
 
 func updateAnnotations(def []byte, tagAll string, f func(map[string]string) map[string]string) ([]byte, error) {
@@ -79,6 +111,7 @@ func updateAnnotations(def []byte, tagAll string, f func(map[string]string) map[
 	replaced := false
 	annotationsRE := regexp.MustCompile(`(?m:\n  annotations:\s*(?:#.*)*(?:\n    .*)*$)`)
 	newDef := annotationsRE.ReplaceAllStringFunc(string(def), func(found string) string {
+		fmt.Println(string(def))
 		if !replaced {
 			replaced = true
 			return fragment
@@ -88,6 +121,7 @@ func updateAnnotations(def []byte, tagAll string, f func(map[string]string) map[
 	if !replaced {
 		metadataRE := multilineRE(`(metadata:\s*(?:#.*)*)`)
 		newDef = metadataRE.ReplaceAllStringFunc(string(def), func(found string) string {
+			fmt.Println(string(def))
 			if !replaced {
 				replaced = true
 				f := found + fragment

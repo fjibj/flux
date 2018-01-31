@@ -144,4 +144,11 @@ wait_for_sync 120
 assert_controller_container default default:deployment/a-deployment a-container quay.io/weaveworks/helloworld:master-a000001
 assert_controller_container default default:deployment/b-deployment b-container quay.io/weaveworks/helloworld:master-a000001
 
+# Automate a single deployment in a List to see if the container image gets updated
+fluxctl --url http://$(minikube -p flux-test ip):30080/api/flux automate --controller=default:deployment/a-deployment
+
+wait_for_upstream_commits 120 2
+
+assert_controller_container default default:deployment/a-deployment a-container quay.io/weaveworks/helloworld:master-07a1b6b
+
 success

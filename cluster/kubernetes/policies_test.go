@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 	"text/template"
 
@@ -97,14 +98,30 @@ func TestUpdatePolicies(t *testing.T) {
 			},
 		},
 	} {
-		caseIn := templToString(t, annotationsTemplate, c.in)
-		caseOut := templToString(t, annotationsTemplate, c.out)
-		out, err := (&Manifests{}).UpdatePolicies([]byte(caseIn), c.update)
+		// caseIn := templToString(t, annotationsTemplate, c.in)
+		// caseOut := templToString(t, annotationsTemplate, c.out)
+		// out, err := (&Manifests{}).UpdatePolicies([]byte(caseIn), c.update)
+		//
+		// if err != nil {
+		// 	t.Errorf("[%s] %v", c.name, err)
+		// } else if string(out) != caseOut {
+		// 	t.Errorf("[%s] Did not get expected result:\n\n%s\n\nInstead got:\n\n%s", c.name, caseOut, string(out))
+		// }
+
+		listIn := templToString(t, listAnnotationsTemplate, c.in)
+		listOut := templToString(t, listAnnotationsTemplate, c.out)
+		out, err := (&Manifests{}).UpdatePolicies([]byte(listIn), c.update)
+
 		if err != nil {
 			t.Errorf("[%s] %v", c.name, err)
-		} else if string(out) != caseOut {
-			t.Errorf("[%s] Did not get expected result:\n\n%s\n\nInstead got:\n\n%s", c.name, caseOut, string(out))
 		}
+
+		fmt.Printf("listOut: %#v\n", listOut)
+
+		if string(out) != listOut {
+			t.Errorf("have: %v\nwant: %v\n", string(out), listOut)
+		}
+
 	}
 }
 
@@ -127,6 +144,42 @@ spec:
         name: nginx   # And these comments are testing comments.
         ports:
         - containerPort: 80
+`))
+
+var listAnnotationsTemplate = template.Must(template.New("").Parse(`---
+apiVersion: v1
+kind: List
+items:
+  - apiVersion: extensions/v1beta1
+    kind: Deployment
+    metadata:
+    {{with .}}annotations:{{range $k, $v := .}}
+      {{$k}}: {{printf "%q" $v}}{{end}}
+    {{end}}name: a-deployment
+    spec:
+      template:
+        metadata:
+          labels:
+            name: a-deployment
+        spec:
+          containers:
+          - name: a-container
+            image: quay.io/weaveworks/helloworld:master-a000001
+  - apiVersion: extensions/v1beta1
+    kind: Deployment
+    metadata:
+    {{with .}}annotations:{{range $k, $v := .}}
+      {{$k}}: {{printf "%q" $v}}{{end}}
+    {{end}}name: b-deployment
+    spec:
+      template:
+        metadata:
+          labels:
+            name: b-deployment
+        spec:
+          containers:
+          - name: b-container
+            image: quay.io/weaveworks/helloworld:master-a000001
 `))
 
 func templToString(t *testing.T, templ *template.Template, data interface{}) string {

@@ -70,7 +70,7 @@ func NewGitRemoteConfig(url, branch, path string) (GitRemoteConfig, error) {
 //		populates also private fields relating to ssh authentication
 func NewCheckout(logger log.Logger, config GitRemoteConfig, k8sSecretVolumeMountPath, k8sSecretDataKey string) (*Checkout, error) {
 	privateKeyPath := path.Join(k8sSecretVolumeMountPath, k8sSecretDataKey)
-	auth, err := getRepoAuth(privateKeyPath)
+	auth, err := GetRepoAuth(privateKeyPath)
 	if err != nil {
 		logger.Log("error", fmt.Sprintf("Failure to get git repo auth = %v", err))
 		return &Checkout{}, err
@@ -197,7 +197,7 @@ func (ch *Checkout) CloneLoop(cloneSubdir string, chanDone chan struct{}) {
 }
 
 // GetRepoAuth ... provides git repo authentication based on private ssh key
-func getRepoAuth(privateKeyPath string) (*gitssh.PublicKeys, error) {
+func GetRepoAuth(privateKeyPath string) (*gitssh.PublicKeys, error) {
 	fileInfo, err := os.Stat(privateKeyPath)
 	switch {
 	case os.IsNotExist(err):

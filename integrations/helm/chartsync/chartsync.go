@@ -8,7 +8,48 @@ Chart release(s).
 */
 package chartsync
 
-// create a syncing loop
-func Run(stopCh <-chan struct{}) {
+import (
+	"log"
+	"sync"
+	"time"
 
+	chartrelease "github.com/weaveworks/flux/integrations/helm/release"
+)
+
+type ChartChangeSync struct {
+	logger       log.Logger
+	PollInterval time.Duration
+	PollTimeout  time.Duration
+	release      chartrelease.Release
+}
+
+// create a syncing loop
+func (chs *ChartChangeSync) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	// every UpdateInterval check the git repo
+
+	// 		get all FHR resources
+	//				collect all gitchartpaths into a list ($Dir/$chartPath)
+
+	//
+
+	/*
+		pollTimer := time.NewTimer(chs.PollInterval)
+		pullThen := func(k func(logger log.Logger) error) {
+			defer func() {
+				pollTimer.Stop()
+				pollTimer = time.NewTimer(chs.PollInterval)
+			}()
+			ctx, cancel := context.WithTimeout(context.Background(), gitOpTimeout)
+			defer cancel()
+			if err := chs.release.Pull(ctx); err != nil {
+				logger.Log("operation", "pull", "err", err)
+				return
+			}
+			if err := k(logger); err != nil {
+				logger.Log("operation", "after-pull", "err", err)
+			}
+		}
+	*/
 }

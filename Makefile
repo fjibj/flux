@@ -44,7 +44,7 @@ build/.%.done: docker/Dockerfile.%
 	touch $@
 
 build/.flux.done: build/fluxd build/kubectl docker/ssh_config
-build/.helm-operator.done: build/helm-operator build/kubectl
+build/.helm-operator.done: build/helm-operator build/kubectl docker/ssh_config
 
 build/fluxd: $(FLUXD_DEPS)
 build/fluxd: cmd/fluxd/*.go

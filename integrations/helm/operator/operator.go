@@ -109,7 +109,7 @@ func New(
 	// ----- EVENT HANDLERS for FluxHelmResource resources change ---------
 	fhrInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(new interface{}) {
-			fmt.Println("\n>>> ADDING release\n")
+			fmt.Println("\n\t>>> ADDING release\n")
 			controller.enqueueJob(new)
 		},
 		UpdateFunc: func(old, new interface{}) {
@@ -134,7 +134,7 @@ func New(
 			fmt.Printf("*** new META resource version ... %#v\n", newResVersion)
 
 			if newResVersion != oldResVersion {
-				fmt.Printf("\n\t>>> UPDATING release: %#v\n\n", new)
+				fmt.Println("\n\t>>> UPDATING release\n")
 				controller.enqueueJob(new)
 			}
 		},
@@ -144,8 +144,7 @@ func New(
 				controller.logger.Log("error", fmt.Sprintf("FluxHelmResource Event Watch received an invalid object: %#v", old))
 				return
 			}
-			fmt.Printf("\n>>> DELETING release\n")
-			fmt.Printf("\t>>> deleted CR: %#v\n\n", old)
+			fmt.Printf("\n\t>>> DELETING release\n")
 			name := chartrelease.GetReleaseName(fhr)
 			err := controller.deleteRelease(name)
 			if err != nil {
@@ -158,7 +157,7 @@ func New(
 	return controller
 }
 
-// Run will set up the event handlers for types we are interested in, as well
+// Run sets up the event handlers for our Custom Resource, as well
 // as syncing informer caches and starting workers. It will block until stopCh
 // is closed, at which point it will shutdown the workqueue and wait for
 // workers to finish processing their current work items.
@@ -209,10 +208,10 @@ func (c *Controller) discardJob() {
 // processNextWorkItem will read a single work item off the workqueue and
 // attempt to process it, by calling the syncHandler.
 func (c *Controller) processNextWorkItem() bool {
-	c.logger.Log("info", "!!! in processNextWorkItem")
+	c.logger.Log("info", "*** in processNextWorkItem")
 
 	obj, shutdown := c.releaseWorkqueue.Get()
-	c.logger.Log("info", fmt.Sprintf("\t\t\t---> PROCESSING item\n\n[%#v]\n\n", obj))
+	c.logger.Log("info", fmt.Sprintf("---> PROCESSING item [%#v]", obj))
 
 	if shutdown {
 		return false
@@ -222,8 +221,8 @@ func (c *Controller) processNextWorkItem() bool {
 	err := func(obj interface{}) error {
 		// We call Done here so the workqueue knows we have finished
 		// processing this item. We must call Forget if we
-		// do not want this work item being re-queued. For example, we do
-		// not call Forget if a transient error occurs, instead the item is
+		// do not want this work item being re-queued. If a transient error occurs, , we do
+		// not call Forget. Instead the item is
 		// put back on the workqueue and attempted again after a back-off
 		// period.
 		defer c.releaseWorkqueue.Done(obj)
@@ -231,7 +230,7 @@ func (c *Controller) processNextWorkItem() bool {
 		var key string
 		var ok bool
 		// We expect strings to come off the workqueue. These are of the
-		// form "namespace/fhr name". We do this as the delayed nature of the
+		// form "namespace/fhr(custom resource) name". We do this as the delayed nature of the
 		// workqueue means the items in the informer cache may actually be
 		// more up to date than when the item was initially put onto the
 		// workqueue.
@@ -261,7 +260,7 @@ func (c *Controller) processNextWorkItem() bool {
 	}(obj)
 
 	if err != nil {
-		c.logger.Log("error", fmt.Sprintf("\t\t *** %#v", err))
+		c.logger.Log("info", fmt.Sprintf("Caught runtime error: %#v", err))
 		runtime.HandleError(err)
 		return true
 	}
@@ -277,8 +276,8 @@ func (c *Controller) syncHandler(key string) error {
 	// Retrieve namespace and Custom Resource name from the key
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
-		c.logger.Log("info", fmt.Sprintf("problem with cache key: %v", err))
-		runtime.HandleError(fmt.Errorf("invalid resource key: %s", key))
+		c.logger.Log("info", fmt.Sprintf("Invalid cache key: %v", err))
+		runtime.HandleError(fmt.Errorf("Invalid cache key: %s", key))
 		return nil
 	}
 
@@ -286,8 +285,8 @@ func (c *Controller) syncHandler(key string) error {
 	fhr, err := c.fhrLister.FluxHelmResources(namespace).Get(name)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			c.logger.Log("info", fmt.Sprintf("fluxhelmresource '%s' in work queue no longer exists", key))
-			runtime.HandleError(fmt.Errorf("fluxhelmresource '%s' in work queue no longer exists", key))
+			c.logger.Log("info", fmt.Sprintf("Fluxhelmresource '%s' referred to in work queue no longer exists", key))
+			runtime.HandleError(fmt.Errorf("Fluxhelmresource '%s' referred to in work queue no longer exists", key))
 			return nil
 		}
 		c.logger.Log("error", err.Error())
@@ -296,10 +295,10 @@ func (c *Controller) syncHandler(key string) error {
 
 	releaseName := chartrelease.GetReleaseName(*fhr)
 	// find if release exists
-	rls, err := c.release.Get(releaseName)
-	c.logger.Log("info", fmt.Sprintf("+++++ Getting release: rls = %#v", rls))
-	c.logger.Log("info", fmt.Sprintf("+++++ Getting release: error = %#v", err))
-	c.logger.Log("info", fmt.Sprintf("+++++ Getting release: err.Error() = %#v", err.Error()))
+	_, err = c.release.Get(releaseName)
+	//c.logger.Log("info", fmt.Sprintf("+++++ Getting release: rls = %#v", rls))
+	//c.logger.Log("info", fmt.Sprintf("+++++ Getting release: error = %#v", err))
+	c.logger.Log("info", fmt.Sprintf("Error when getting release: err.Error() = %#v", err.Error()))
 
 	var syncType chartrelease.ReleaseType
 	if err != nil {
@@ -311,7 +310,9 @@ func (c *Controller) syncHandler(key string) error {
 			return err
 		}
 	}
-	syncType = chartrelease.ReleaseType("UPDATE")
+	if err == nil {
+		syncType = chartrelease.ReleaseType("UPDATE")
+	}
 	_, err = c.release.Install(releaseName, *fhr, syncType)
 	if err != nil {
 		return err
@@ -341,8 +342,8 @@ func getCacheKey(obj interface{}) (string, error) {
 	var err error
 
 	if key, err = cache.MetaNamespaceKeyFunc(obj); err != nil {
+		fmt.Printf("*** caught runtime ERROR: %#v\n", err)
 		runtime.HandleError(err)
-		fmt.Printf("*** ERROR %#v\n", err)
 		return "", err
 	}
 	return key, nil

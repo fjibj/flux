@@ -1,16 +1,16 @@
 package release
 
 import (
-	"bytes"
-	"encoding/gob"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"sync"
 
 	//	"k8s.io/client-go/kubernetes"
 
+	yaml "gopkg.in/yaml.v2"
 	k8shelm "k8s.io/helm/pkg/helm"
 	hapi_release "k8s.io/helm/pkg/proto/hapi/release"
 
@@ -31,7 +31,7 @@ type ReleaseType string
 type Release struct {
 	logger     log.Logger
 	HelmClient *k8shelm.Client
-	repo       repo
+	Repo       repo
 	sync.RWMutex
 }
 
@@ -49,7 +49,7 @@ func New(logger log.Logger, helmClient *k8shelm.Client, fhrChangeCheckout *helmg
 	r := &Release{
 		logger:     log.With(logger, "component", "release"),
 		HelmClient: helmClient,
-		repo:       repo,
+		Repo:       repo,
 	}
 
 	return r
@@ -75,7 +75,6 @@ func GetReleaseName(fhr ifv1.FluxHelmResource) string {
 // Get ... detects if a particular Chart release exists
 // 		release name must match regex ^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])+$
 func (r *Release) Get(name string) (*hapi_release.Release, error) {
-	fmt.Printf("\t*** release name: %s ***\n", name)
 	rls, err := r.HelmClient.ReleaseContent(name)
 
 	// TODO: see what errors can be returned
@@ -132,15 +131,17 @@ func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, release
 		namespace = "default"
 	}
 
-	err := r.repo.fhrChange.Pull()
+	err := r.Repo.fhrChange.Pull()
 	if err != nil {
+		r.logger.Log("error", fmt.Sprintf("Failure to do git pull: %#v", err))
 		return hapi_release.Release{}, err
 	}
 
-	chartDir := filepath.Join(r.repo.fhrChange.Dir, chartPath)
+	chartDir := filepath.Join(r.Repo.fhrChange.Dir, chartPath)
 
 	rawVals, err := collectValues(fhr.Spec.Customizations)
 	if err != nil {
+		r.logger.Log("error", fmt.Sprintf("Problem with supplied customizations for Chart release [%s]: %#v", releaseName, err))
 		return hapi_release.Release{}, err
 	}
 
@@ -228,20 +229,22 @@ func (r *Release) GetAll() ([]*hapi_release.Release, error) {
 }
 
 func collectValues(params []ifv1.HelmChartParam) ([]byte, error) {
-	customValues := []byte{}
+	base := map[string]interface{}{}
 	if params == nil || len(params) == 0 {
-		return customValues, nil
+		return yaml.Marshal(base)
 	}
 
-	customValuesMap := make(map[string]interface{})
-	for _, v := range params {
-		customValuesMap[v.Name] = v.Value
-	}
-	b := new(bytes.Buffer)
-	encoder := gob.NewEncoder(b)
-	if err := encoder.Encode(customValuesMap); err != nil {
-		return nil, err
+	for _, p := range params {
+		k := strings.TrimSpace(p.Name)
+		k = strings.Trim(k, "\n")
+		if k == "" {
+			continue
+		}
+		v := strings.TrimSpace(p.Value)
+		v = strings.Trim(v, "\n")
+		base[k] = v
 	}
 
-	return b.Bytes(), nil
+	fmt.Printf("Values string slice ... %#v\n\n", base)
+	return yaml.Marshal(base)
 }

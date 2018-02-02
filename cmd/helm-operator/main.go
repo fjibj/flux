@@ -302,7 +302,7 @@ func main() {
 		if err == nil {
 			break
 		}
-		mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%#v]: %v", gitRemoteConfigFhr, err))
+		mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%s, %s, %s]: %v", gitRemoteConfigFhr.URL, gitRemoteConfigFhr.Path, gitRemoteConfigFhr.Branch, err))
 		time.Sleep(10 * time.Second)
 		//errc <- fmt.Errorf("Failed to clone git [%#v]: %v", gitRemoteConfigFhr, err)
 	}
@@ -320,14 +320,13 @@ func main() {
 		if err == nil {
 			break
 		}
-		mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%#v]: %v", gitRemoteConfigCh, err))
+		mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%s, %s, %s]: %v", gitRemoteConfigCh.URL, gitRemoteConfigCh.Path, gitRemoteConfigCh.Branch, err))
 		time.Sleep(10 * time.Second)
 	}
 	mainLogger.Log("info", "*** Cloned repos")
 
 	// CUSTOM RESOURCES CACHING SETUP -------------------------------------------------------
 	ifInformerFactory := ifinformers.NewSharedInformerFactory(ifClient, time.Second*10)
-	mainLogger.Log("info", fmt.Sprintf("--> ifInformerFactory: %#v", ifInformerFactory))
 	go ifInformerFactory.Start(shutdown)
 
 	// OPERATOR -----------------------------------------------------------------------------

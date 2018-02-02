@@ -167,11 +167,12 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 
 	c.logger.Log("info", ">>> Starting operator <<<")
 	// Wait for the caches to be synced before starting workers
-	c.logger.Log("info", "Waiting for informer caches to sync")
+	c.logger.Log("info", "----------> Waiting for informer caches to sync")
 
 	if ok := cache.WaitForCacheSync(stopCh, c.fhrSynced); !ok {
 		return fmt.Errorf("error: %s", "failed to wait for caches to sync")
 	}
+	c.logger.Log("info", "<---------- informer caches synced")
 
 	c.logger.Log("info", "=== Starting workers ===")
 	for i := 0; i < threadiness; i++ {

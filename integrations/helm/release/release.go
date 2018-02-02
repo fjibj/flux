@@ -65,7 +65,7 @@ func GetReleaseName(fhr ifv1.FluxHelmResource) string {
 	releaseName := fhr.Spec.ReleaseName
 	fmt.Printf("---> release name from fhr.Spec.ReleaseName: %s\n", releaseName)
 	if releaseName == "" {
-		releaseName = fmt.Sprintf("%s.%s", namespace, fhr.Name)
+		releaseName = fmt.Sprintf("%s-%s", namespace, fhr.Name)
 	}
 	fmt.Printf("---> final release name: %s\n", releaseName)
 

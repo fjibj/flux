@@ -38,13 +38,13 @@ type GitRemoteConfig struct {
 
 // Checkout is a local clone of the remote repo.
 type Checkout struct {
-	Logger         log.Logger
-	Config         GitRemoteConfig // remote repo info provided by the user
-	privateKeyPath string
-	auth           *gitssh.PublicKeys
-	Dir            string            // directory where the repo was cloned
-	repo           *gogit.Repository // cloned repo info
-	worktree       *gogit.Worktree
+	Logger log.Logger
+	Config GitRemoteConfig // remote repo info provided by the user
+	//	privateKeyPath string
+	auth     *gitssh.PublicKeys
+	Dir      string            // directory where the repo was cloned
+	repo     *gogit.Repository // cloned repo info
+	worktree *gogit.Worktree
 	sync.RWMutex
 }
 
@@ -69,20 +69,20 @@ func NewGitRemoteConfig(url, branch, path string) (GitRemoteConfig, error) {
 
 // NewCheckout ... creates a Checkout instance
 //		populates also private fields relating to ssh authentication
-func NewCheckout(logger log.Logger, config GitRemoteConfig, k8sSecretVolumeMountPath, k8sSecretDataKey string) (*Checkout, error) {
-	privateKeyPath := path.Join(k8sSecretVolumeMountPath, k8sSecretDataKey)
-	auth, err := GetRepoAuth(privateKeyPath)
-	if err != nil {
-		logger.Log("error", fmt.Sprintf("Failure to get git repo auth = %v", err))
-		return &Checkout{}, err
-	}
-	logger.Log("info", fmt.Sprintf("auth = %v", auth))
+func NewCheckout(logger log.Logger, config GitRemoteConfig, auth *gitssh.PublicKeys) *Checkout {
+	/*
+		if err != nil {
+			logger.Log("error", fmt.Sprintf("Failure to get git repo auth = %v", err))
+			return &Checkout{}, err
+		}
+	*/
+	logger.Log("info", fmt.Sprintf("auth = %#v", auth))
 	return &Checkout{
-		Logger:         logger,
-		Config:         config,
-		privateKeyPath: privateKeyPath,
-		auth:           auth,
-	}, nil
+		Logger: logger,
+		Config: config,
+		//	privateKeyPath: privateKeyPath,
+		auth: auth,
+	}
 }
 
 // Clone creates a local clone of a remote repo and
@@ -118,14 +118,14 @@ func (ch *Checkout) Clone(ctx context.Context, cloneSubdir string) error {
 		return err
 	}
 
-	fmt.Println("\t\tstage 2")
+	fmt.Println("\t\tstage 3")
 
 	wt, err := repo.Worktree()
 	if err != nil {
 		return err
 	}
 
-	fmt.Println("\t\tstage 3")
+	fmt.Println("\t\tstage 4")
 
 	br := ch.Config.Branch
 	err = wt.Checkout(&gogit.CheckoutOptions{
@@ -135,7 +135,7 @@ func (ch *Checkout) Clone(ctx context.Context, cloneSubdir string) error {
 		return err
 	}
 
-	fmt.Println("\t\tstage 4")
+	fmt.Println("\t\tstage 5")
 
 	ch.repo = repo
 	ch.worktree = wt
@@ -198,7 +198,8 @@ func (ch *Checkout) CloneLoop(cloneSubdir string, chanDone chan struct{}) {
 }
 
 // GetRepoAuth ... provides git repo authentication based on private ssh key
-func GetRepoAuth(privateKeyPath string) (*gitssh.PublicKeys, error) {
+func GetRepoAuth(k8sSecretVolumeMountPath, k8sSecretDataKey string) (*gitssh.PublicKeys, error) {
+	privateKeyPath := path.Join(k8sSecretVolumeMountPath, k8sSecretDataKey)
 	fileInfo, err := os.Stat(privateKeyPath)
 	switch {
 	case os.IsNotExist(err):

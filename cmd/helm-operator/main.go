@@ -41,6 +41,8 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+
+	gitssh "gopkg.in/src-d/go-git.v4/plumbing/transport/ssh"
 )
 
 var (
@@ -187,13 +189,22 @@ func main() {
 	// CLUSTER ACCESS -----------------------------------------------------------------------
 	cfg, err := clientcmd.BuildConfigFromFlags(*master, *kubeconfig)
 	if err != nil {
-		mainLogger.Log("info", fmt.Sprintf("Error building kubeconfig: %v", err))
+		mainLogger.Log("error", fmt.Sprintf("Error building kubeconfig: %v", err))
+		os.Exit(1)
 	}
 
 	kubeClient, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		mainLogger.Log("error", fmt.Sprintf("Error building kubernetes clientset: %v", err))
-		errc <- fmt.Errorf("Error building kubernetes clientset: %v", err)
+		os.Exit(1)
+	}
+
+	// CUSTOM RESOURCES ----------------------------------------------------------------------
+	ifClient, err := clientset.NewForConfig(cfg)
+	if err != nil {
+		mainLogger.Log("error", fmt.Sprintf("Error building integrations clientset: %v", err))
+		//errc <- fmt.Errorf("Error building integrations clientset: %v", err)
+		os.Exit(1)
 	}
 
 	// HELM ---------------------------------------------------------------------------------
@@ -204,7 +215,7 @@ func main() {
 	}
 	mainLogger.Log("info", "Set up helmClient")
 
-	// TESTING ------------------------------------------------------------------------------
+	// HELM TESTING ------------------------------------------------------------------------------
 	res, err := helmClient.ListReleases(
 	//k8shelm.ReleaseListLimit(10),
 	//k8shelm.ReleaseListOffset(l.offset),
@@ -222,14 +233,7 @@ func main() {
 	}
 	//---------------------------------------------------------------------------------------
 
-	// CUSTOM RESOURCES ----------------------------------------------------------------------
-	ifClient, err := clientset.NewForConfig(cfg)
-	if err != nil {
-		mainLogger.Log("error", fmt.Sprintf("Error building integrations clientset: %v", err))
-		errc <- fmt.Errorf("Error building integrations clientset: %v", err)
-	}
-
-	// TESTING ------------------------------------------------------------------------------
+	// CUSTOM RESOURCE TESTING ------------------------------------------------------------------------------
 	chartSelector := map[string]string{
 		"chart": "charts_mongodb",
 	}
@@ -270,12 +274,23 @@ func main() {
 
 	// GIT REPO CLONING ---------------------------------------------------------------------
 	mainLogger.Log("info", "\t*** Starting to clone repos")
-	// 		Chart releases sync due to Custom Resources changes -------------------------------
-	checkoutFhr, err := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigFhr, *k8sSecretVolumeMountPath, *k8sSecretDataKey)
-	if err != nil {
-		mainLogger.Log("error", fmt.Sprintf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err))
-		errc <- fmt.Errorf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err)
+
+	var gitAuth *gitssh.PublicKeys
+	for {
+		gitAuth, err = git.GetRepoAuth(*k8sSecretVolumeMountPath, *k8sSecretDataKey)
+		if err != nil {
+			mainLogger.Log("error", fmt.Sprintf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err))
+			//errc <- fmt.Errorf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err)
+			continue
+		}
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Second)
 	}
+
+	// 		Chart releases sync due to Custom Resources changes -------------------------------
+	checkoutFhr := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigFhr, gitAuth)
 	fmt.Printf("\t\tcheckoutFhr=%#v\n", checkoutFhr)
 
 	// If cloning not immediately possible, we wait until it is -----------------------------
@@ -293,11 +308,7 @@ func main() {
 	}
 
 	// 		Chart releases sync due to pure Charts changes ------------------------------------
-	checkoutCh, err := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigCh, *k8sSecretVolumeMountPath, *k8sSecretDataKey)
-	if err != nil {
-		mainLogger.Log("error", fmt.Sprintf("Failed to create Checkout [%#v]: %v", gitRemoteConfigCh, err))
-		errc <- fmt.Errorf("Failed to create Checkout [%#v]: %v", gitRemoteConfigCh, err)
-	}
+	checkoutCh := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigCh, gitAuth)
 	fmt.Printf("\t\tcheckoutChr=%#v\n", checkoutCh)
 
 	// If cloning not immediately possible, we wait until it is -----------------------------
@@ -312,10 +323,11 @@ func main() {
 		mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%#v]: %v", gitRemoteConfigCh, err))
 		time.Sleep(10 * time.Second)
 	}
-	mainLogger.Log("info", "\t*** Cloned repos")
+	mainLogger.Log("info", "*** Cloned repos")
 
 	// CUSTOM RESOURCES CACHING SETUP -------------------------------------------------------
-	ifInformerFactory := ifinformers.NewSharedInformerFactory(ifClient, time.Second*30)
+	ifInformerFactory := ifinformers.NewSharedInformerFactory(ifClient, time.Second*10)
+	mainLogger.Log("info", fmt.Sprintf("--> ifInformerFactory: %#v", ifInformerFactory))
 	go ifInformerFactory.Start(shutdown)
 
 	// OPERATOR -----------------------------------------------------------------------------

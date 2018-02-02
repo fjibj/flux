@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"sync"
 	"syscall"
 	"time"
@@ -230,7 +231,7 @@ func main() {
 
 	// TESTING ------------------------------------------------------------------------------
 	chartSelector := map[string]string{
-		"chart": "charts_helloworld",
+		"chart": "charts_mongodb",
 	}
 	labelsSet := labels.Set(chartSelector)
 	listOptions := metav1.ListOptions{LabelSelector: labelsSet.AsSelector().String()}
@@ -267,9 +268,8 @@ func main() {
 	}
 	//---------------------------------------------------------------------------------------
 
-	// GIT REPO CLONING -----------------------------------------------------------------------
+	// GIT REPO CLONING ---------------------------------------------------------------------
 	mainLogger.Log("info", "\t*** Starting to clone repos")
-	//ctx, cancel := context.WithTimeout(context.Background(), git.DefaultCloneTimeout)
 	// 		Chart releases sync due to Custom Resources changes -------------------------------
 	checkoutFhr, err := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigFhr, *k8sSecretVolumeMountPath, *k8sSecretDataKey)
 	if err != nil {
@@ -277,10 +277,19 @@ func main() {
 		errc <- fmt.Errorf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err)
 	}
 	fmt.Printf("\t\tcheckoutFhr=%#v\n", checkoutFhr)
-	err = checkoutFhr.CloneAndCheckout(git.FhrChangesClone)
-	if err != nil {
+
+	// If cloning not immediately possible, we wait until it is -----------------------------
+	for {
+		mainLogger.Log("info", "Cloning repo ...")
+		ctx, cancel := context.WithTimeout(context.Background(), git.DefaultCloneTimeout)
+		err = checkoutFhr.Clone(ctx, git.FhrChangesClone)
+		cancel()
+		if err == nil {
+			break
+		}
 		mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%#v]: %v", gitRemoteConfigFhr, err))
-		errc <- fmt.Errorf("Failed to clone git [%#v]: %v", gitRemoteConfigFhr, err)
+		time.Sleep(10 * time.Second)
+		//errc <- fmt.Errorf("Failed to clone git [%#v]: %v", gitRemoteConfigFhr, err)
 	}
 
 	// 		Chart releases sync due to pure Charts changes ------------------------------------
@@ -290,10 +299,18 @@ func main() {
 		errc <- fmt.Errorf("Failed to create Checkout [%#v]: %v", gitRemoteConfigCh, err)
 	}
 	fmt.Printf("\t\tcheckoutChr=%#v\n", checkoutCh)
-	err = checkoutCh.CloneAndCheckout(git.ChartsChangesClone)
-	if err != nil {
+
+	// If cloning not immediately possible, we wait until it is -----------------------------
+	for {
+		mainLogger.Log("info", "Cloning repo ...")
+		ctx, cancel := context.WithTimeout(context.Background(), git.DefaultCloneTimeout)
+		err = checkoutCh.Clone(ctx, git.ChartsChangesClone)
+		cancel()
+		if err == nil {
+			break
+		}
 		mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%#v]: %v", gitRemoteConfigCh, err))
-		errc <- fmt.Errorf("Failed to clone git repo [%#v]: %v", gitRemoteConfigCh, err)
+		time.Sleep(10 * time.Second)
 	}
 	mainLogger.Log("info", "\t*** Cloned repos")
 

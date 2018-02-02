@@ -23,7 +23,7 @@ type ChartChangeSync struct {
 	release      chartrelease.Release
 }
 
-// create a syncing loop
+//  Run ... create a syncing loop
 func (chs *ChartChangeSync) Run(stopCh <-chan struct{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 

@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -84,13 +85,13 @@ func NewCheckout(logger log.Logger, config GitRemoteConfig, k8sSecretVolumeMount
 	}, nil
 }
 
-// CloneAndCheckout creates a local clone of a remote repo and
+// Clone creates a local clone of a remote repo and
 // checks out the relevant branch
 //		subdir reflects whether we are:
 //																		* acting on Custom Resource change
 //																		* acting on Charts changes (syncing the cluster when there were only commits
 //																		  in the Charts parts of the repo which did not trigger Custom Resource changes)
-func (ch *Checkout) CloneAndCheckout(cloneSubdir string) error {
+func (ch *Checkout) Clone(ctx context.Context, cloneSubdir string) error {
 	ch.Lock()
 	defer ch.Unlock()
 
@@ -252,5 +253,4 @@ func (ch *Checkout) getRevision() (string, error) {
 	rev := ref.Hash().String()
 	return rev, nil
 }
-
 */

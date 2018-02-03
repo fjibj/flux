@@ -299,7 +299,7 @@ func (c *Controller) syncHandler(key string) error {
 	_, err = c.release.Get(releaseName)
 	//c.logger.Log("info", fmt.Sprintf("+++++ Getting release: rls = %#v", rls))
 	//c.logger.Log("info", fmt.Sprintf("+++++ Getting release: error = %#v", err))
-	c.logger.Log("info", fmt.Sprintf("Error when getting release: err.Error() = %#v", err.Error()))
+	c.logger.Log("info", fmt.Sprintf("Error when getting release: err.Error() = %s", err.Error()))
 
 	var syncType chartrelease.ReleaseType
 	if err != nil {

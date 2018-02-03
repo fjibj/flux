@@ -70,13 +70,6 @@ func NewGitRemoteConfig(url, branch, path string) (GitRemoteConfig, error) {
 // NewCheckout ... creates a Checkout instance
 //		populates also private fields relating to ssh authentication
 func NewCheckout(logger log.Logger, config GitRemoteConfig, auth *gitssh.PublicKeys) *Checkout {
-	/*
-		if err != nil {
-			logger.Log("error", fmt.Sprintf("Failure to get git repo auth = %v", err))
-			return &Checkout{}, err
-		}
-	*/
-	logger.Log("info", fmt.Sprintf("auth = %#v", auth))
 	return &Checkout{
 		Logger: logger,
 		Config: config,
@@ -149,7 +142,10 @@ func (ch *Checkout) Cleanup() {
 	defer ch.Unlock()
 
 	if ch.Dir != "" {
-		os.Remove(ch.Dir)
+		err := os.RemoveAll(ch.Dir)
+		if err != nil {
+			ch.Logger.Log("error", err.Error())
+		}
 	}
 	ch.Dir = ""
 	ch.repo = nil

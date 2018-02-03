@@ -78,12 +78,12 @@ func (r *Release) Get(name string) (*hapi_release.Release, error) {
 	rls, err := r.HelmClient.ReleaseContent(name)
 
 	// TODO: see what errors can be returned
-	r.logger.Log("info", fmt.Sprintf("+++ Getting release: rls = %#v", rls))
+	r.logger.Log("info", fmt.Sprintf("+++ Getting release %s", name))
 
 	if err != nil {
 		notFound, _ := regexp.MatchString("not found", err.Error())
 
-		r.logger.Log("info", fmt.Sprintf("+++ Get release error: error = %v (%s)", err.Error(), err.Error()))
+		r.logger.Log("info", fmt.Sprintf("+++ Get release (%s) error: error = %v", name, err.Error()))
 		r.logger.Log("info", fmt.Sprintf("+++ Get release error: notFound = %v", notFound))
 
 		if notFound {
@@ -107,7 +107,7 @@ func (r *Release) Get(name string) (*hapi_release.Release, error) {
 	rst := rls.Release.Info.Status.GetCode()
 	if rst != 1 {
 		r.logger.Log("error", fmt.Sprintf("Release [%s] status: %#v", name, rst.String()))
-		return &hapi_release.Release{}, fmt.Errorf("Release [%s] status: %#v", name, rst.String())
+		return &hapi_release.Release{}, fmt.Errorf("Release [%s] already exists with status: %s", name, rst.String())
 	}
 	return rls.Release, nil
 }

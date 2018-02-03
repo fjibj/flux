@@ -291,7 +291,8 @@ func main() {
 
 	// 		Chart releases sync due to Custom Resources changes -------------------------------
 	checkoutFhr := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigFhr, gitAuth)
-	fmt.Printf("\t\tcheckoutFhr=%#v\n", checkoutFhr)
+	defer checkoutFhr.Cleanup()
+	//fmt.Printf("\t\tcheckoutFhr=%#v\n", checkoutFhr)
 
 	// If cloning not immediately possible, we wait until it is -----------------------------
 	for {
@@ -309,7 +310,8 @@ func main() {
 
 	// 		Chart releases sync due to pure Charts changes ------------------------------------
 	checkoutCh := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigCh, gitAuth)
-	fmt.Printf("\t\tcheckoutChr=%#v\n", checkoutCh)
+	defer checkoutCh.Cleanup()
+	//fmt.Printf("\t\tcheckoutCh=%#v\n", checkoutCh)
 
 	// If cloning not immediately possible, we wait until it is -----------------------------
 	for {

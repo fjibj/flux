@@ -26,6 +26,7 @@ _testmain.go
 # Tool related configurations
 .ackrc
 .envrc
+.idea
 
 # Specific to this project
 vendor/*

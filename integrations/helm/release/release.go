@@ -77,9 +77,6 @@ func GetReleaseName(fhr ifv1.FluxHelmResource) string {
 func (r *Release) Get(name string) (*hapi_release.Release, error) {
 	rls, err := r.HelmClient.ReleaseContent(name)
 
-	// TODO: see what errors can be returned
-	r.logger.Log("info", fmt.Sprintf("+++ Getting release %s", name))
-
 	if err != nil {
 		notFound, _ := regexp.MatchString("not found", err.Error())
 
@@ -203,8 +200,9 @@ func (r *Release) Delete(name string) error {
 
 	if err != nil {
 		notFound, _ := regexp.MatchString("not found", err.Error())
-		if notFound {
-			r.logger.Log("info", fmt.Sprintf("Release not found, deletion is a noop: %#v", err))
+		alreadyDeleted, _ := regexp.MatchString("already deleted", err.Error())
+		if notFound || alreadyDeleted {
+			r.logger.Log("info", fmt.Sprintf("Release not found or already deleted, deletion is a noop: %#v", err))
 			return nil
 		}
 		return err

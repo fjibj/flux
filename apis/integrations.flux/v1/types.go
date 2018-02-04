@@ -14,8 +14,8 @@ type FluxHelmResource struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`
 
-	Spec   FluxHelmResourceSpec   `json:"spec"`
-	Status FluxHelmResourceStatus `json:"status"`
+	Spec FluxHelmResourceSpec `json:"spec"`
+	//Status FluxHelmResourceStatus `json:"status"`
 }
 
 // FluxHelmResourceSpec is the spec for a FluxHelmResource resource
@@ -39,9 +39,11 @@ type HelmChartParam struct {
 }
 
 // FluxHelmResourceStatus is the status for a FluxHelmResource resource
+/*
 type FluxHelmResourceStatus struct {
 	Revision string `json:"revision"`
 }
+*/
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 

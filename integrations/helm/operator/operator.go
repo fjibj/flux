@@ -6,7 +6,7 @@ import (
 
 	"github.com/golang/glog"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -24,11 +24,14 @@ import (
 	clientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
 	ifscheme "github.com/weaveworks/flux/integrations/client/clientset/versioned/scheme"
 	ifinformers "github.com/weaveworks/flux/integrations/client/informers/externalversions"
-	iflister "github.com/weaveworks/flux/integrations/client/listers/integrations/v1"
+	iflister "github.com/weaveworks/flux/integrations/client/listers/integrations.flux/v1"
 	chartrelease "github.com/weaveworks/flux/integrations/helm/release"
 )
 
-const controllerAgentName = "helm-operator"
+const (
+	controllerAgentName = "helm-operator"
+	CacheSyncTimeout    = 180 * time.Second
+)
 
 const (
 	// ChartSynced is used as part of the Event 'reason' when the Chart related to the
@@ -114,42 +117,12 @@ func New(
 		},
 		UpdateFunc: func(old, new interface{}) {
 			fmt.Printf("\n>>> in UpdateFunc\n")
+			controller.enqueueUpateJob(old, new)
 
-			oldMeta, err := meta.Accessor(old)
-			if err != nil {
-				controller.logger.Log("error", fmt.Sprintf("%#v", err))
-				controller.discardJob()
-				return
-			}
-			newMeta, err := meta.Accessor(new)
-			if err != nil {
-				controller.logger.Log("error", fmt.Sprintf("%#v", err))
-				controller.discardJob()
-				return
-			}
-
-			oldResVersion := oldMeta.GetResourceVersion()
-			newResVersion := newMeta.GetResourceVersion()
-			fmt.Printf("*** old META resource version ... %#v\n", oldResVersion)
-			fmt.Printf("*** new META resource version ... %#v\n", newResVersion)
-
-			if newResVersion != oldResVersion {
-				fmt.Println("\n\t>>> UPDATING release\n")
-				controller.enqueueJob(new)
-			}
 		},
 		DeleteFunc: func(old interface{}) {
-			fhr, ok := checkCustomResourceType(old)
-			if !ok {
-				controller.logger.Log("error", fmt.Sprintf("FluxHelmResource Event Watch received an invalid object: %#v", old))
-				return
-			}
-			fmt.Printf("\n\t>>> DELETING release\n")
-			name := chartrelease.GetReleaseName(fhr)
-			err := controller.deleteRelease(name)
-			if err != nil {
-				controller.logger.Log("error", fmt.Sprintf("Chart release [%s] not deleted: %#v", name, err))
-			}
+			fmt.Printf("\n\t>>> in DeleteFunc\n")
+			controller.deleteRelease(old)
 		},
 	})
 	fmt.Println("===> event handlers are set up")
@@ -169,10 +142,23 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	// Wait for the caches to be synced before starting workers
 	c.logger.Log("info", "----------> Waiting for informer caches to sync")
 
+	// ORIGINAL implementation
 	if ok := cache.WaitForCacheSync(stopCh, c.fhrSynced); !ok {
 		return fmt.Errorf("error: %s", "failed to wait for caches to sync")
 	}
 	c.logger.Log("info", "<---------- informer caches synced")
+
+	/*
+		// NOTE
+		// There seems to be a bug releated to custom resources, where
+		// cache.WaitForCacheSync only works for newly detected custom resource type.
+		// Otherwise it blocks forever. It, can be occasionally intermittent.
+		err := c.waitForCacheSync(stopCh)
+		if err != nil {
+			return fmt.Errorf("error: %s", fmt.Sprintf("failed to sync caches: %s", err))
+		}
+		c.logger.Log("info", "<---------- informer caches synced")
+	*/
 
 	c.logger.Log("info", "=== Starting workers ===")
 	for i := 0; i < threadiness; i++ {
@@ -285,7 +271,7 @@ func (c *Controller) syncHandler(key string) error {
 	// Custom Resource fhr contains all information we need to know about the Chart release
 	fhr, err := c.fhrLister.FluxHelmResources(namespace).Get(name)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8serrors.IsNotFound(err) {
 			c.logger.Log("info", fmt.Sprintf("Fluxhelmresource '%s' referred to in work queue no longer exists", key))
 			runtime.HandleError(fmt.Errorf("Fluxhelmresource '%s' referred to in work queue no longer exists", key))
 			return nil
@@ -297,10 +283,6 @@ func (c *Controller) syncHandler(key string) error {
 	releaseName := chartrelease.GetReleaseName(*fhr)
 	// find if release exists
 	_, err = c.release.Get(releaseName)
-	//c.logger.Log("info", fmt.Sprintf("+++++ Getting release: rls = %#v", rls))
-	//c.logger.Log("info", fmt.Sprintf("+++++ Getting release: error = %#v", err))
-	c.logger.Log("info", fmt.Sprintf("Error when getting release: err.Error() = %s", err.Error()))
-
 	var syncType chartrelease.ReleaseType
 	if err != nil {
 		if err.Error() == "NOT EXISTS" {
@@ -323,12 +305,38 @@ func (c *Controller) syncHandler(key string) error {
 	return nil
 }
 
-func checkCustomResourceType(obj interface{}) (ifv1.FluxHelmResource, bool) {
-	_, err := meta.Accessor(obj)
-	if err != nil {
-		return ifv1.FluxHelmResource{}, false
-	}
+// waitForCacheSync ... wraps cache.WaitForCacheSync to provide a fix for a bug, where
+//		cache.WaitForCacheSync hangs after the first successful cache syncing for Custom Resource
+//		informer cache.
+//		We send the cache.WaitForCacheSync off and it either returns or
+//		we get a timeout
+func (c *Controller) waitForCacheSync(stopCh <-chan struct{}) error {
+	okCh := make(chan bool)
+	go func(ch chan bool) {
+		ok := cache.WaitForCacheSync(stopCh, c.fhrSynced)
+		ch <- ok
+	}(okCh)
 
+	select {
+	case ok := <-okCh:
+		if !ok {
+			fmt.Printf("not ok ...CACHE SYNC INFO: c.fhrSynced = %#v\n\n", c.fhrSynced)
+			return fmt.Errorf("failure to sync Custom Resource informer cache")
+		}
+		fmt.Printf("CACHE SYNC INFO: c.fhrSynced() = %#v\n\n", c.fhrSynced())
+		return nil
+	case <-time.After(CacheSyncTimeout):
+		fmt.Printf("timeout ... CACHE SYNC INFO: c.fhrSynced() = %#v\n\n", c.fhrSynced())
+		/*
+			syncedFunc := func() bool { return true }
+			c.fhrSynced = cache.InformerSynced(syncedFunc)
+			return errors.New("Timeout during informer cache sync")
+		*/
+		return nil
+	}
+}
+
+func checkCustomResourceType(obj interface{}) (ifv1.FluxHelmResource, bool) {
 	var fhr *ifv1.FluxHelmResource
 	var ok bool
 	if fhr, ok = obj.(*ifv1.FluxHelmResource); !ok {
@@ -366,9 +374,47 @@ func (c *Controller) enqueueJob(obj interface{}) {
 	c.logger.Log("info", fmt.Sprintf("\n\t\t===> appended key %s ... current WORK QUEUE length is %d <===\n\n", key, c.releaseWorkqueue.Len()))
 }
 
-func (c *Controller) deleteRelease(name string) error {
+// enqueueJob takes a FluxHelmResource resource and converts it into a namespace/name
+// string which is then put onto the work queue. This method should not be
+// passed resources of any type other than FluxHelmResource.
+func (c *Controller) enqueueUpateJob(old, new interface{}) {
+	fmt.Println("=== in enqueueUpdateJob")
+
+	oldMeta, err := meta.Accessor(old)
+	if err != nil {
+		c.logger.Log("error", fmt.Sprintf("%#v", err))
+		return
+	}
+
+	newMeta, err := meta.Accessor(new)
+	if err != nil {
+		c.logger.Log("error", fmt.Sprintf("%#v", err))
+		return
+	}
+
+	oldResVersion := oldMeta.GetResourceVersion()
+	newResVersion := newMeta.GetResourceVersion()
+	fmt.Printf("*** old META resource version ... %#v\n", oldResVersion)
+	fmt.Printf("*** new META resource version ... %#v\n", newResVersion)
+
+	if newResVersion != oldResVersion {
+		fmt.Println("\n\t>>> UPDATING release\n")
+		c.enqueueJob(new)
+	}
+}
+
+func (c *Controller) deleteRelease(old interface{}) error {
+	fhr, ok := checkCustomResourceType(old)
+	if !ok {
+		err := fmt.Errorf("FluxHelmResource Event Watch received an invalid object: %#v", old)
+		c.logger.Log("error", err.Error())
+		return err
+	}
+	fmt.Printf("\n\t>>> DELETING release\n")
+	name := chartrelease.GetReleaseName(fhr)
 	err := c.release.Delete(name)
 	if err != nil {
+		c.logger.Log("error", fmt.Sprintf("Chart release [%s] not deleted: %#v", name, err))
 		return err
 	}
 	return nil

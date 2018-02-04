@@ -27,10 +27,6 @@ import (
 
 	//"github.com/weaveworks/flux/git"
 
-	"github.com/golang/glog"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	clientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
 	ifinformers "github.com/weaveworks/flux/integrations/client/informers/externalversions"
 	fluxhelm "github.com/weaveworks/flux/integrations/helm"
@@ -38,7 +34,6 @@ import (
 	"github.com/weaveworks/flux/integrations/helm/operator"
 	"github.com/weaveworks/flux/integrations/helm/release"
 	"github.com/weaveworks/flux/ssh"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
@@ -215,61 +210,63 @@ func main() {
 	}
 	mainLogger.Log("info", "Set up helmClient")
 
-	// HELM TESTING ------------------------------------------------------------------------------
-	res, err := helmClient.ListReleases(
-	//k8shelm.ReleaseListLimit(10),
-	//k8shelm.ReleaseListOffset(l.offset),
-	//k8shelm.ReleaseListFilter(l.filter),
-	//k8shelm.ReleaseListSort(int32(sortBy)),
-	//k8shelm.ReleaseListOrder(int32(sortOrder)),
-	//k8shelm.ReleaseListStatuses(stats),
-	//k8shelm.ReleaseListNamespace(l.namespace),
-	)
+	/*
+			// HELM TESTING ------------------------------------------------------------------------------
+			res, err := helmClient.ListReleases(
+			//k8shelm.ReleaseListLimit(10),
+			//k8shelm.ReleaseListOffset(l.offset),
+			//k8shelm.ReleaseListFilter(l.filter),
+			//k8shelm.ReleaseListSort(int32(sortBy)),
+			//k8shelm.ReleaseListOrder(int32(sortOrder)),
+			//k8shelm.ReleaseListStatuses(stats),
+			//k8shelm.ReleaseListNamespace(l.namespace),
+			)
 
-	count := res.GetTotal()
-	fmt.Printf("\t\t*** number of helm RELEASES - %d\n", count)
-	for _, rls := range res.GetReleases() {
-		fmt.Printf("\t\t*** RELEASE %#v\n\t\t\t%#v\n", rls.GetName(), rls.GetInfo())
-	}
-	//---------------------------------------------------------------------------------------
+			count := res.GetTotal()
+			fmt.Printf("\t\t*** number of helm RELEASES - %d\n", count)
+			for _, rls := range res.GetReleases() {
+				fmt.Printf("\t\t*** RELEASE %#v\n\t\t\t%#v\n", rls.GetName(), rls.GetInfo())
+			}
+			//---------------------------------------------------------------------------------------
 
-	// CUSTOM RESOURCE TESTING ------------------------------------------------------------------------------
-	chartSelector := map[string]string{
-		"chart": "charts_mongodb",
-	}
-	labelsSet := labels.Set(chartSelector)
-	listOptions := metav1.ListOptions{LabelSelector: labelsSet.AsSelector().String()}
+			// CUSTOM RESOURCE TESTING ------------------------------------------------------------------------------
+			chartSelector := map[string]string{
+				"chart": "charts_mongodb",
+			}
+			labelsSet := labels.Set(chartSelector)
+			listOptions := metav1.ListOptions{LabelSelector: labelsSet.AsSelector().String()}
 
-	list, err := ifClient.IntegrationsV1().FluxHelmResources("kube-system").List(listOptions)
-	fmt.Printf("\n>>> FOUND %v items\n\n", len(list.Items))
-	if err != nil {
-		glog.Errorf("Error listing all fluxhelmresources: %v", err)
-		os.Exit(1)
-	}
+			list, err := ifClient.IntegrationsV1().FluxHelmResources("kube-system").List(listOptions)
+			fmt.Printf("\n>>> FOUND %v items\n\n", len(list.Items))
+			if err != nil {
+				glog.Errorf("Error listing all fluxhelmresources: %v", err)
+				os.Exit(1)
+			}
 
-	for _, fhr := range list.Items {
-		fmt.Println("=============== START OF LABEL FILTERING ================")
+		for _, fhr := range list.Items {
+			fmt.Println("=============== START OF LABEL FILTERING ================")
 
-		fmt.Printf("fluxhelmresource %s for chart path %q and release name [%s] with customizations %#v\n", fhr.Name, fhr.Spec.ChartGitPath, fhr.Spec.ReleaseName, fhr.Spec.Customizations)
+			fmt.Printf("fluxhelmresource %s for chart path %q and release name [%s] with customizations %#v\n", fhr.Name, fhr.Spec.ChartGitPath, fhr.Spec.ReleaseName, fhr.Spec.Customizations)
 
-		fmt.Printf("\t\t>>> found %v parameters\n", len(fhr.Spec.Customizations))
+			fmt.Printf("\t\t>>> found %v parameters\n", len(fhr.Spec.Customizations))
 
-		for _, cp := range fhr.Spec.Customizations {
-			fmt.Printf("\t\t * customization with \n\t\tname %q\n\t\tvalue %q\n", cp.Name, cp.Value)
+			for _, cp := range fhr.Spec.Customizations {
+				fmt.Printf("\t\t * customization with \n\t\tname %q\n\t\tvalue %q\n", cp.Name, cp.Value)
+			}
+
+			fmt.Println("-----------------------------------------------------")
+			for key, lb := range fhr.Labels {
+				fmt.Printf("\t\t*** label %s=%s\n", key, lb)
+			}
+			fmt.Println("-----------------------------------------------------")
+
+			for key, an := range fhr.Annotations {
+				fmt.Printf("\t\t+++ annotation %s=%s\n", key, an)
+			}
+			fmt.Println("-----------------------------------------------------")
+
 		}
-
-		fmt.Println("-----------------------------------------------------")
-		for key, lb := range fhr.Labels {
-			fmt.Printf("\t\t*** label %s=%s\n", key, lb)
-		}
-		fmt.Println("-----------------------------------------------------")
-
-		for key, an := range fhr.Annotations {
-			fmt.Printf("\t\t+++ annotation %s=%s\n", key, an)
-		}
-		fmt.Println("-----------------------------------------------------")
-
-	}
+	*/
 	//---------------------------------------------------------------------------------------
 
 	// GIT REPO CLONING ---------------------------------------------------------------------
@@ -292,7 +289,6 @@ func main() {
 	// 		Chart releases sync due to Custom Resources changes -------------------------------
 	checkoutFhr := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigFhr, gitAuth)
 	defer checkoutFhr.Cleanup()
-	//fmt.Printf("\t\tcheckoutFhr=%#v\n", checkoutFhr)
 
 	// If cloning not immediately possible, we wait until it is -----------------------------
 	for {
@@ -311,7 +307,6 @@ func main() {
 	// 		Chart releases sync due to pure Charts changes ------------------------------------
 	checkoutCh := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigCh, gitAuth)
 	defer checkoutCh.Cleanup()
-	//fmt.Printf("\t\tcheckoutCh=%#v\n", checkoutCh)
 
 	// If cloning not immediately possible, we wait until it is -----------------------------
 	for {

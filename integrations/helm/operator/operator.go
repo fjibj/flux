@@ -28,7 +28,10 @@ import (
 	chartrelease "github.com/weaveworks/flux/integrations/helm/release"
 )
 
-const controllerAgentName = "helm-operator"
+const (
+	controllerAgentName = "helm-operator"
+	CacheSyncTimeout    = 30 * time.Second
+)
 
 const (
 	// ChartSynced is used as part of the Event 'reason' when the Chart related to the
@@ -139,9 +142,25 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	// Wait for the caches to be synced before starting workers
 	c.logger.Log("info", "----------> Waiting for informer caches to sync")
 
-	if ok := cache.WaitForCacheSync(stopCh, c.fhrSynced); !ok {
-		return fmt.Errorf("error: %s", "failed to wait for caches to sync")
+	// NOTE
+	// There seems to be a bug releated to custom resources, where
+	// cache.WaitForCacheSync only works for newly detected custom resource type.
+	// Otherwise it blocks forever. It, can be occasionally intermittent.
+
+	// TODO !!!
+	//  cache.WaitForCacheSync should time out when taking too long.
+
+	err := c.waitForCacheSync(stopCh)
+	if err != nil {
+		return fmt.Errorf("error: %s", fmt.Sprintf("failed to sync caches: %s", err))
 	}
+
+	/*
+		if ok := cache.WaitForCacheSync(stopCh, c.fhrSynced); !ok {
+			return fmt.Errorf("error: %s", "failed to wait for caches to sync")
+		}
+	*/
+
 	c.logger.Log("info", "<---------- informer caches synced")
 
 	c.logger.Log("info", "=== Starting workers ===")
@@ -292,6 +311,17 @@ func (c *Controller) syncHandler(key string) error {
 		}
 	*/
 	c.recorder.Event(fhr, corev1.EventTypeNormal, ChartSynced, MessageChartSynced)
+	return nil
+}
+
+// TODO !!!
+//  cache.WaitForCacheSync should time out when taking too long.
+func (c *Controller) waitForCacheSync(stopCh <-chan struct{}) error {
+	/*
+		if ok := cache.WaitForCacheSync(stopCh, c.fhrSynced); !ok {
+			return fmt.Errorf("error: %s", "failed to wait for caches to sync")
+		}
+	*/
 	return nil
 }
 

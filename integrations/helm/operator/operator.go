@@ -114,48 +114,12 @@ func New(
 		},
 		UpdateFunc: func(old, new interface{}) {
 			fmt.Printf("\n>>> in UpdateFunc\n")
-
-			/*
-				oldMeta, err := meta.Accessor(old)
-				if err != nil {
-					controller.logger.Log("error", fmt.Sprintf("%#v", err))
-					return
-				}
-
-				newMeta, err := meta.Accessor(new)
-				if err != nil {
-					controller.logger.Log("error", fmt.Sprintf("%#v", err))
-					return
-				}
-
-				oldResVersion := oldMeta.GetResourceVersion()
-				newResVersion := newMeta.GetResourceVersion()
-				fmt.Printf("*** old META resource version ... %#v\n", oldResVersion)
-				fmt.Printf("*** new META resource version ... %#v\n", newResVersion)
-
-				if newResVersion != oldResVersion {
-					fmt.Println("\n\t>>> UPDATING release\n")
-					controller.enqueueJob(new)
-				}
-			*/
 			controller.enqueueUpateJob(old, new)
 
 		},
 		DeleteFunc: func(old interface{}) {
 			fmt.Printf("\n\t>>> in DeleteFunc\n")
-			/*
-				fhr, ok := checkCustomResourceType(old)
-				if !ok {
-					controller.logger.Log("error", fmt.Sprintf("FluxHelmResource Event Watch received an invalid object: %#v", old))
-					return
-				}
-				fmt.Printf("\n\t>>> DELETING release\n")
-				name := chartrelease.GetReleaseName(fhr)
-				err := controller.release.Delete(name)
-				if err != nil {
-					controller.logger.Log("error", fmt.Sprintf("Chart release [%s] not deleted: %#v", name, err))
-				}
-			*/
+			controller.deleteRelease(old)
 		},
 	})
 	fmt.Println("===> event handlers are set up")
@@ -396,4 +360,21 @@ func (c *Controller) enqueueUpateJob(old, new interface{}) {
 		fmt.Println("\n\t>>> UPDATING release\n")
 		c.enqueueJob(new)
 	}
+}
+
+func (c *Controller) deleteRelease(old interface{}) error {
+	fhr, ok := checkCustomResourceType(old)
+	if !ok {
+		err := fmt.Errorf("FluxHelmResource Event Watch received an invalid object: %#v", old)
+		c.logger.Log("error", err.Error())
+		return err
+	}
+	fmt.Printf("\n\t>>> DELETING release\n")
+	name := chartrelease.GetReleaseName(fhr)
+	err := c.release.Delete(name)
+	if err != nil {
+		c.logger.Log("error", fmt.Sprintf("Chart release [%s] not deleted: %#v", name, err))
+		return err
+	}
+	return nil
 }

@@ -115,41 +115,47 @@ func New(
 		UpdateFunc: func(old, new interface{}) {
 			fmt.Printf("\n>>> in UpdateFunc\n")
 
-			oldMeta, err := meta.Accessor(old)
-			if err != nil {
-				controller.logger.Log("error", fmt.Sprintf("%#v", err))
-				controller.discardJob()
-				return
-			}
-			newMeta, err := meta.Accessor(new)
-			if err != nil {
-				controller.logger.Log("error", fmt.Sprintf("%#v", err))
-				controller.discardJob()
-				return
-			}
+			/*
+				oldMeta, err := meta.Accessor(old)
+				if err != nil {
+					controller.logger.Log("error", fmt.Sprintf("%#v", err))
+					return
+				}
 
-			oldResVersion := oldMeta.GetResourceVersion()
-			newResVersion := newMeta.GetResourceVersion()
-			fmt.Printf("*** old META resource version ... %#v\n", oldResVersion)
-			fmt.Printf("*** new META resource version ... %#v\n", newResVersion)
+				newMeta, err := meta.Accessor(new)
+				if err != nil {
+					controller.logger.Log("error", fmt.Sprintf("%#v", err))
+					return
+				}
 
-			if newResVersion != oldResVersion {
-				fmt.Println("\n\t>>> UPDATING release\n")
-				controller.enqueueJob(new)
-			}
+				oldResVersion := oldMeta.GetResourceVersion()
+				newResVersion := newMeta.GetResourceVersion()
+				fmt.Printf("*** old META resource version ... %#v\n", oldResVersion)
+				fmt.Printf("*** new META resource version ... %#v\n", newResVersion)
+
+				if newResVersion != oldResVersion {
+					fmt.Println("\n\t>>> UPDATING release\n")
+					controller.enqueueJob(new)
+				}
+			*/
+			controller.enqueueUpateJob(old, new)
+
 		},
 		DeleteFunc: func(old interface{}) {
-			fhr, ok := checkCustomResourceType(old)
-			if !ok {
-				controller.logger.Log("error", fmt.Sprintf("FluxHelmResource Event Watch received an invalid object: %#v", old))
-				return
-			}
-			fmt.Printf("\n\t>>> DELETING release\n")
-			name := chartrelease.GetReleaseName(fhr)
-			err := controller.deleteRelease(name)
-			if err != nil {
-				controller.logger.Log("error", fmt.Sprintf("Chart release [%s] not deleted: %#v", name, err))
-			}
+			fmt.Printf("\n\t>>> in DeleteFunc\n")
+			/*
+				fhr, ok := checkCustomResourceType(old)
+				if !ok {
+					controller.logger.Log("error", fmt.Sprintf("FluxHelmResource Event Watch received an invalid object: %#v", old))
+					return
+				}
+				fmt.Printf("\n\t>>> DELETING release\n")
+				name := chartrelease.GetReleaseName(fhr)
+				err := controller.release.Delete(name)
+				if err != nil {
+					controller.logger.Log("error", fmt.Sprintf("Chart release [%s] not deleted: %#v", name, err))
+				}
+			*/
 		},
 	})
 	fmt.Println("===> event handlers are set up")
@@ -294,41 +300,38 @@ func (c *Controller) syncHandler(key string) error {
 		return err
 	}
 
-	releaseName := chartrelease.GetReleaseName(*fhr)
-	// find if release exists
-	_, err = c.release.Get(releaseName)
-	//c.logger.Log("info", fmt.Sprintf("+++++ Getting release: rls = %#v", rls))
-	//c.logger.Log("info", fmt.Sprintf("+++++ Getting release: error = %#v", err))
-	c.logger.Log("info", fmt.Sprintf("Error when getting release: err.Error() = %s", err.Error()))
+	/*
 
-	var syncType chartrelease.ReleaseType
-	if err != nil {
-		if err.Error() == "NOT EXISTS" {
-			syncType = chartrelease.ReleaseType("CREATE")
-			c.logger.Log("info", fmt.Sprintf("Creating a new Chart release: %s", releaseName))
-		} else {
-			c.logger.Log("error", fmt.Sprintf("Failure to do Chart release [%s]: %#v", releaseName, err))
+		releaseName := chartrelease.GetReleaseName(*fhr)
+		// find if release exists
+		_, err = c.release.Get(releaseName)
+		//c.logger.Log("info", fmt.Sprintf("+++++ Getting release: rls = %#v", rls))
+		//c.logger.Log("info", fmt.Sprintf("+++++ Getting release: error = %#v", err))
+		c.logger.Log("info", fmt.Sprintf("Error when getting release: err.Error() = %s", err.Error()))
+
+		var syncType chartrelease.ReleaseType
+		if err != nil {
+			if err.Error() == "NOT EXISTS" {
+				syncType = chartrelease.ReleaseType("CREATE")
+				c.logger.Log("info", fmt.Sprintf("Creating a new Chart release: %s", releaseName))
+			} else {
+				c.logger.Log("error", fmt.Sprintf("Failure to do Chart release [%s]: %#v", releaseName, err))
+				return err
+			}
+		}
+		if err == nil {
+			syncType = chartrelease.ReleaseType("UPDATE")
+		}
+		_, err = c.release.Install(releaseName, *fhr, syncType)
+		if err != nil {
 			return err
 		}
-	}
-	if err == nil {
-		syncType = chartrelease.ReleaseType("UPDATE")
-	}
-	_, err = c.release.Install(releaseName, *fhr, syncType)
-	if err != nil {
-		return err
-	}
-
+	*/
 	c.recorder.Event(fhr, corev1.EventTypeNormal, ChartSynced, MessageChartSynced)
 	return nil
 }
 
 func checkCustomResourceType(obj interface{}) (ifv1.FluxHelmResource, bool) {
-	_, err := meta.Accessor(obj)
-	if err != nil {
-		return ifv1.FluxHelmResource{}, false
-	}
-
 	var fhr *ifv1.FluxHelmResource
 	var ok bool
 	if fhr, ok = obj.(*ifv1.FluxHelmResource); !ok {
@@ -366,10 +369,31 @@ func (c *Controller) enqueueJob(obj interface{}) {
 	c.logger.Log("info", fmt.Sprintf("\n\t\t===> appended key %s ... current WORK QUEUE length is %d <===\n\n", key, c.releaseWorkqueue.Len()))
 }
 
-func (c *Controller) deleteRelease(name string) error {
-	err := c.release.Delete(name)
+// enqueueJob takes a FluxHelmResource resource and converts it into a namespace/name
+// string which is then put onto the work queue. This method should not be
+// passed resources of any type other than FluxHelmResource.
+func (c *Controller) enqueueUpateJob(old, new interface{}) {
+	fmt.Println("=== in enqueueUpdateJob")
+
+	oldMeta, err := meta.Accessor(old)
 	if err != nil {
-		return err
+		c.logger.Log("error", fmt.Sprintf("%#v", err))
+		return
 	}
-	return nil
+
+	newMeta, err := meta.Accessor(new)
+	if err != nil {
+		c.logger.Log("error", fmt.Sprintf("%#v", err))
+		return
+	}
+
+	oldResVersion := oldMeta.GetResourceVersion()
+	newResVersion := newMeta.GetResourceVersion()
+	fmt.Printf("*** old META resource version ... %#v\n", oldResVersion)
+	fmt.Printf("*** new META resource version ... %#v\n", newResVersion)
+
+	if newResVersion != oldResVersion {
+		fmt.Println("\n\t>>> UPDATING release\n")
+		c.enqueueJob(new)
+	}
 }

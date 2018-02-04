@@ -17,7 +17,6 @@ import (
 	"github.com/go-kit/kit/log"
 	ifv1 "github.com/weaveworks/flux/apis/integrations.flux/v1"
 	helmgit "github.com/weaveworks/flux/integrations/helm/git"
-	//ifclientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
 )
 
 var (

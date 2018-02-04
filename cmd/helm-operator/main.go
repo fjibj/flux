@@ -203,7 +203,8 @@ func main() {
 	}
 
 	// HELM ---------------------------------------------------------------------------------
-	helmClient, err := fluxhelm.NewClient(kubeClient, fluxhelm.TillerOptions{IP: *tillerIP, Port: *tillerPort, Namespace: *tillerNamespace})
+	tillerOpts := fluxhelm.TillerOptions{IP: *tillerIP, Port: *tillerPort, Namespace: *tillerNamespace}
+	helmClient, err := fluxhelm.NewClient(kubeClient, tillerOpts)
 	if err != nil {
 		mainLogger.Log("error", fmt.Sprintf("Error creating helm client: %v", err))
 		errc <- fmt.Errorf("Error creating helm client: %v", err)
@@ -327,7 +328,7 @@ func main() {
 	go ifInformerFactory.Start(shutdown)
 
 	// OPERATOR -----------------------------------------------------------------------------
-	rel := release.New(log.With(logger, "component", "release"), helmClient, checkoutFhr, checkoutCh)
+	rel := release.New(log.With(logger, "component", "release"), tillerOpts, helmClient, checkoutFhr, checkoutCh)
 	opr := operator.New(log.With(logger, "component", "operator"), kubeClient, ifClient, ifInformerFactory, rel)
 	if err = opr.Run(2, shutdown); err != nil {
 		msg := fmt.Sprintf("Failure to run controller: %s", err.Error())

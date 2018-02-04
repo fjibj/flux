@@ -16,8 +16,8 @@ import (
 
 	"github.com/go-kit/kit/log"
 	ifv1 "github.com/weaveworks/flux/apis/integrations.flux/v1"
+	fluxhelm "github.com/weaveworks/flux/integrations/helm"
 	helmgit "github.com/weaveworks/flux/integrations/helm/git"
-	//ifclientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
 )
 
 var (
@@ -29,9 +29,10 @@ type ReleaseType string
 
 // Release contains clients needed to provide functionality related to helm releases
 type Release struct {
-	logger     log.Logger
-	HelmClient *k8shelm.Client
-	Repo       repo
+	logger        log.Logger
+	tillerOptions fluxhelm.TillerOptions
+	HelmClient    *k8shelm.Client
+	Repo          repo
 	sync.RWMutex
 }
 
@@ -41,15 +42,16 @@ type repo struct {
 }
 
 // New creates a new Release instance
-func New(logger log.Logger, helmClient *k8shelm.Client, fhrChangeCheckout *helmgit.Checkout, chartChangeCheckout *helmgit.Checkout) *Release {
+func New(logger log.Logger, tillerOpts fluxhelm.TillerOptions, helmClient *k8shelm.Client, fhrChangeCheckout *helmgit.Checkout, chartChangeCheckout *helmgit.Checkout) *Release {
 	repo := repo{
 		fhrChange:   fhrChangeCheckout,
 		chartChange: chartChangeCheckout,
 	}
 	r := &Release{
-		logger:     log.With(logger, "component", "release"),
-		HelmClient: helmClient,
-		Repo:       repo,
+		logger:        log.With(logger, "component", "release"),
+		tillerOptions: tillerOpts,
+		HelmClient:    helmClient,
+		Repo:          repo,
 	}
 
 	return r

@@ -13,12 +13,12 @@ import (
 	"github.com/weaveworks/flux/policy"
 )
 
-func (m *Manifests) UpdatePolicies(in []byte, serviceID string, update policy.Update) ([]byte, error) {
+func (m *Manifests) UpdatePolicies(in []byte, serviceID flux.ResourceID, update policy.Update) ([]byte, error) {
 	tagAll, _ := update.Add.Get(policy.TagAll)
 
 	var b []byte
 
-	u, err := updateAnnotations(in, tagAll, func(a map[string]string) map[string]string {
+	u, err := updateAnnotations(in, serviceID, tagAll, func(a map[string]string) map[string]string {
 		for p, v := range update.Add {
 			if p == policy.TagAll {
 				continue
@@ -40,14 +40,37 @@ func (m *Manifests) UpdatePolicies(in []byte, serviceID string, update policy.Up
 	return b, nil
 }
 
-func updateAnnotations(def []byte, tagAll string, f func(map[string]string) map[string]string) ([]byte, error) {
+func updateAnnotations(def []byte, serviceID flux.ResourceID, tagAll string, f func(map[string]string) map[string]string) ([]byte, error) {
 	manifest, err := parseManifest(def)
 	if err != nil {
 		return nil, err
 	}
-	annotations := manifest.Metadata.AnnotationsOrNil()
+
+	str := string(def)
+	isList := strings.Contains(str, "kind: List")
+	var annotations map[string]string
+	var containers []resource.Container
+
+	if isList {
+		var l resource.List
+		err := yaml.Unmarshal(def, &l)
+		// find the item ew are trying to update in the List
+		for _, item := range l.Items {
+			if item.ResourceID().String() == serviceID.String() {
+				annotations = item.Metadata.AnnotationsOrNil()
+				containers = item.Spec.Template.Spec.Containers
+				break
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		annotations = manifest.Metadata.AnnotationsOrNil()
+		containers = manifest.Spec.Template.Spec.Containers
+	}
+
 	if tagAll != "" {
-		containers := manifest.Spec.Template.Spec.Containers
 		for _, c := range containers {
 			p := resource.PolicyPrefix + string(policy.TagPrefix(c.Name))
 			if tagAll != "glob:*" {
@@ -89,7 +112,7 @@ func updateAnnotations(def []byte, tagAll string, f func(map[string]string) map[
 	// TODO: There's probably a more elegant regex-ey way to do this in one pass.
 	replaced := false
 	annotationsRE := regexp.MustCompile(`(?m:\n  annotations:\s*(?:#.*)*(?:\n    .*)*$)`)
-	newDef := annotationsRE.ReplaceAllStringFunc(string(def), func(found string) string {
+	newDef := annotationsRE.ReplaceAllStringFunc(str, func(found string) string {
 		if !replaced {
 			replaced = true
 			return fragment
@@ -98,7 +121,7 @@ func updateAnnotations(def []byte, tagAll string, f func(map[string]string) map[
 	})
 	if !replaced {
 		metadataRE := multilineRE(`(metadata:\s*(?:#.*)*)`)
-		newDef = metadataRE.ReplaceAllStringFunc(string(def), func(found string) string {
+		newDef = metadataRE.ReplaceAllStringFunc(str, func(found string) string {
 			if !replaced {
 				replaced = true
 				f := found + fragment

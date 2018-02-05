@@ -5,6 +5,7 @@ import (
 	"testing"
 	"text/template"
 
+	"github.com/weaveworks/flux"
 	"github.com/weaveworks/flux/policy"
 )
 
@@ -99,9 +100,10 @@ var changes = []struct {
 
 func TestUpdatePolicies(t *testing.T) {
 	for _, c := range changes {
+		id := flux.MakeResourceID("default", "deployment", "nginx")
 		caseIn := templToString(t, annotationsTemplate, c.in)
 		caseOut := templToString(t, annotationsTemplate, c.out)
-		out, err := (&Manifests{}).UpdatePolicies([]byte(caseIn), "default:deployment/nginx", c.update)
+		out, err := (&Manifests{}).UpdatePolicies([]byte(caseIn), id, c.update)
 
 		if err != nil {
 			t.Errorf("[%s] %v", c.name, err)
@@ -114,9 +116,10 @@ func TestUpdatePolicies(t *testing.T) {
 
 func TestUpdateListPolicies(t *testing.T) {
 	for _, c := range changes {
+		id := flux.MakeResourceID("default", "deployment", "a-deployment")
 		listIn := templToString(t, listAnnotationsTemplate, c.in)
 		listOut := templToString(t, listAnnotationsTemplate, c.out)
-		out, err := (&Manifests{}).UpdatePolicies([]byte(listIn), "default:deployment/a-deployment", c.update)
+		out, err := (&Manifests{}).UpdatePolicies([]byte(listIn), id, c.update)
 
 		if err != nil {
 			t.Fatalf("[%s] %v", c.name, err)
@@ -156,9 +159,9 @@ items:
   - apiVersion: extensions/v1beta1
     kind: Deployment
     metadata:
-    {{with .}}annotations:{{range $k, $v := .}}
-      {{$k}}: {{printf "%q" $v}}{{end}}
-    {{end}}name: a-deployment
+    {{with .}}  annotations:{{range $k, $v := .}}
+        {{$k}}: {{printf "%q" $v}}{{end}}
+    {{end}}  name: a-deployment
     spec:
       template:
         metadata:
@@ -171,9 +174,9 @@ items:
   - apiVersion: extensions/v1beta1
     kind: Deployment
     metadata:
-    {{with .}}annotations:{{range $k, $v := .}}
-      {{$k}}: {{printf "%q" $v}}{{end}}
-    {{end}}name: b-deployment
+    {{with .}}  annotations:{{range $k, $v := .}}
+        {{$k}}: {{printf "%q" $v}}{{end}}
+    {{end}}  name: b-deployment
     spec:
       template:
         metadata:

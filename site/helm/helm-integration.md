@@ -23,7 +23,7 @@ Flux-Helm Integration implementation consists of two parts:
 
 2. *Helm operator* deals with Helm Chart releases. The operator watches for changes of Custom Resources of kind FluxHelmResource. It receives Kubernetes Events and acts accordingly, installing, upgrading or deleting a release.
 
-# More detail
+## More detail
 
  - Kubernetes Custom Resource (CR) manifests contain all the information needed to do a Chart release. There is 1-2-1 releationship between a Helm Chart and a Custom Resource.
  
@@ -63,3 +63,29 @@ Flux-Helm Integration implementation consists of two parts:
   - customizations section contains user customizations overriding the Chart values
 
  - Helm operator uses (Kubernetes) shared informer caching and a work queue, that is processed by a configurable number of workers.
+# Setup and configuration
+
+helm-operator requires setup and offers customization though a multitude of flags.
+(TODO: change the flags to reflect reality)
+
+|flag                    | default                       | purpose |
+|------------------------|-------------------------------|---------|
+|--kubernetes-kubectl    |                               | Optional, explicit path to kubectl tool|
+|**Git repo & key etc.** |                              ||
+|--git-url               |                               | URL of git repo with Kubernetes manifests; e.g., `git@github.com:weaveworks/flux-example`|
+|--git-branch            | `master`                        | branch of git repo to use for Kubernetes manifests|
+|--git-config-path       |                               | path within git repo to locate Kubernetes Custom Resource manifests (relative path)|
+|--git-charts-path       |                               | path within git repo to locate Kubernetes Charts (relative path)|
+|**repo chart changes**  |                               | (none of these need overriding, usually) |
+|--git-poll-interval     | `5 minutes`                 | period at which to poll git repo for new commits|
+|**k8s-secret backed ssh keyring configuration**      |  | |
+|--k8s-secret-name       | `flux-git-deploy`               | name of the k8s secret used to store the private SSH key|
+|--k8s-secret-volume-mount-path | `/etc/fluxd/ssh`         | mount location of the k8s secret storing the private SSH key|
+|--k8s-secret-data-key   | `identity`                      | data key holding the private SSH key within the k8s secret|
+|--connect               |                               | connect to an upstream service e.g., Weave Cloud, at this base address|
+|--token                 |                               | authentication token for upstream service|
+|**SSH key generation**  |                               | |
+|--ssh-keygen-bits       |                               | -b argument to ssh-keygen (default unspecified)|
+|--ssh-keygen-type       |                               | -t argument to ssh-keygen (default unspecified)|
+
+[Requirements](./helm-integration-requirements.md)

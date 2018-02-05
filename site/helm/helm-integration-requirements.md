@@ -18,3 +18,10 @@ menu_order: 20
  - Custom Resource namespace reflects where the release should be done
 
  - example of a test repo: https://github.com/tamarakaufler/helm-fhr-test
+
+# Custom Resource manifest content
+
+## Compulsory
+
+
+## Optional

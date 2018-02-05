@@ -2,126 +2,129 @@ package kubernetes
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 	"text/template"
 
 	"github.com/weaveworks/flux/policy"
 )
 
-func TestUpdatePolicies(t *testing.T) {
-	for _, c := range []struct {
-		name    string
-		in, out map[string]string
-		update  policy.Update
-	}{
-		{
-			name: "adding annotation with others existing",
-			in:   map[string]string{"prometheus.io.scrape": "false"},
-			out:  map[string]string{"flux.weave.works/automated": "true", "prometheus.io.scrape": "false"},
-			update: policy.Update{
-				Add: policy.Set{policy.Automated: "true"},
-			},
+var changes = []struct {
+	name    string
+	in, out map[string]string
+	update  policy.Update
+}{
+	{
+		name: "adding annotation with others existing",
+		in:   map[string]string{"prometheus.io.scrape": "false"},
+		out:  map[string]string{"flux.weave.works/automated": "true", "prometheus.io.scrape": "false"},
+		update: policy.Update{
+			Add: policy.Set{policy.Automated: "true"},
 		},
-		{
-			name: "adding annotation when already has annotation",
-			in:   map[string]string{"flux.weave.works/automated": "true"},
-			out:  map[string]string{"flux.weave.works/automated": "true"},
-			update: policy.Update{
-				Add: policy.Set{policy.Automated: "true"},
-			},
+	},
+	{
+		name: "adding annotation when already has annotation",
+		in:   map[string]string{"flux.weave.works/automated": "true"},
+		out:  map[string]string{"flux.weave.works/automated": "true"},
+		update: policy.Update{
+			Add: policy.Set{policy.Automated: "true"},
 		},
-		{
-			name: "adding annotation when already has annotation and others",
-			in:   map[string]string{"flux.weave.works/automated": "true", "prometheus.io.scrape": "false"},
-			out:  map[string]string{"flux.weave.works/automated": "true", "prometheus.io.scrape": "false"},
-			update: policy.Update{
-				Add: policy.Set{policy.Automated: "true"},
-			},
+	},
+	{
+		name: "adding annotation when already has annotation and others",
+		in:   map[string]string{"flux.weave.works/automated": "true", "prometheus.io.scrape": "false"},
+		out:  map[string]string{"flux.weave.works/automated": "true", "prometheus.io.scrape": "false"},
+		update: policy.Update{
+			Add: policy.Set{policy.Automated: "true"},
 		},
-		{
-			name: "adding first annotation",
-			in:   nil,
-			out:  map[string]string{"flux.weave.works/automated": "true"},
-			update: policy.Update{
-				Add: policy.Set{policy.Automated: "true"},
-			},
+	},
+	{
+		name: "adding first annotation",
+		in:   nil,
+		out:  map[string]string{"flux.weave.works/automated": "true"},
+		update: policy.Update{
+			Add: policy.Set{policy.Automated: "true"},
 		},
-		{
-			name: "add and remove different annotations at the same time",
-			in:   map[string]string{"flux.weave.works/automated": "true", "prometheus.io.scrape": "false"},
-			out:  map[string]string{"flux.weave.works/locked": "true", "prometheus.io.scrape": "false"},
-			update: policy.Update{
-				Add:    policy.Set{policy.Locked: "true"},
-				Remove: policy.Set{policy.Automated: "true"},
-			},
+	},
+	{
+		name: "add and remove different annotations at the same time",
+		in:   map[string]string{"flux.weave.works/automated": "true", "prometheus.io.scrape": "false"},
+		out:  map[string]string{"flux.weave.works/locked": "true", "prometheus.io.scrape": "false"},
+		update: policy.Update{
+			Add:    policy.Set{policy.Locked: "true"},
+			Remove: policy.Set{policy.Automated: "true"},
 		},
-		{
-			name: "remove overrides add for same key",
-			in:   nil,
-			out:  nil,
-			update: policy.Update{
-				Add:    policy.Set{policy.Locked: "true"},
-				Remove: policy.Set{policy.Locked: "true"},
-			},
+	},
+	{
+		name: "remove overrides add for same key",
+		in:   nil,
+		out:  nil,
+		update: policy.Update{
+			Add:    policy.Set{policy.Locked: "true"},
+			Remove: policy.Set{policy.Locked: "true"},
 		},
-		{
-			name: "remove annotation with others existing",
-			in:   map[string]string{"flux.weave.works/automated": "true", "prometheus.io.scrape": "false"},
-			out:  map[string]string{"prometheus.io.scrape": "false"},
-			update: policy.Update{
-				Remove: policy.Set{policy.Automated: "true"},
-			},
+	},
+	{
+		name: "remove annotation with others existing",
+		in:   map[string]string{"flux.weave.works/automated": "true", "prometheus.io.scrape": "false"},
+		out:  map[string]string{"prometheus.io.scrape": "false"},
+		update: policy.Update{
+			Remove: policy.Set{policy.Automated: "true"},
 		},
-		{
-			name: "remove last annotation",
-			in:   map[string]string{"flux.weave.works/automated": "true"},
-			out:  nil,
-			update: policy.Update{
-				Remove: policy.Set{policy.Automated: "true"},
-			},
+	},
+	{
+		name: "remove last annotation",
+		in:   map[string]string{"flux.weave.works/automated": "true"},
+		out:  nil,
+		update: policy.Update{
+			Remove: policy.Set{policy.Automated: "true"},
 		},
-		{
-			name: "remove annotation with no annotations",
-			in:   nil,
-			out:  nil,
-			update: policy.Update{
-				Remove: policy.Set{policy.Automated: "true"},
-			},
+	},
+	{
+		name: "remove annotation with no annotations",
+		in:   nil,
+		out:  nil,
+		update: policy.Update{
+			Remove: policy.Set{policy.Automated: "true"},
 		},
-		{
-			name: "remove annotation with only others",
-			in:   map[string]string{"prometheus.io.scrape": "false"},
-			out:  map[string]string{"prometheus.io.scrape": "false"},
-			update: policy.Update{
-				Remove: policy.Set{policy.Automated: "true"},
-			},
+	},
+	{
+		name: "remove annotation with only others",
+		in:   map[string]string{"prometheus.io.scrape": "false"},
+		out:  map[string]string{"prometheus.io.scrape": "false"},
+		update: policy.Update{
+			Remove: policy.Set{policy.Automated: "true"},
 		},
-	} {
-		// caseIn := templToString(t, annotationsTemplate, c.in)
-		// caseOut := templToString(t, annotationsTemplate, c.out)
-		// out, err := (&Manifests{}).UpdatePolicies([]byte(caseIn), c.update)
-		//
-		// if err != nil {
-		// 	t.Errorf("[%s] %v", c.name, err)
-		// } else if string(out) != caseOut {
-		// 	t.Errorf("[%s] Did not get expected result:\n\n%s\n\nInstead got:\n\n%s", c.name, caseOut, string(out))
-		// }
+	},
+}
 
+func TestUpdatePolicies(t *testing.T) {
+	for _, c := range changes {
+		caseIn := templToString(t, annotationsTemplate, c.in)
+		caseOut := templToString(t, annotationsTemplate, c.out)
+		out, err := (&Manifests{}).UpdatePolicies([]byte(caseIn), c.update)
+
+		if err != nil {
+			t.Errorf("[%s] %v", c.name, err)
+		} else if string(out) != caseOut {
+			t.Errorf("[%s] Did not get expected result:\n\n%s\n\nInstead got:\n\n%s", c.name, caseOut, string(out))
+		}
+
+	}
+}
+
+func TestUpdateListPolicies(t *testing.T) {
+	for _, c := range changes {
 		listIn := templToString(t, listAnnotationsTemplate, c.in)
 		listOut := templToString(t, listAnnotationsTemplate, c.out)
 		out, err := (&Manifests{}).UpdatePolicies([]byte(listIn), c.update)
 
 		if err != nil {
-			t.Errorf("[%s] %v", c.name, err)
+			t.Fatalf("[%s] %v", c.name, err)
 		}
-
-		fmt.Printf("listOut: %#v\n", listOut)
 
 		if string(out) != listOut {
 			t.Errorf("have: %v\nwant: %v\n", string(out), listOut)
 		}
-
 	}
 }
 

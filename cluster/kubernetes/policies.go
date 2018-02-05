@@ -1,7 +1,6 @@
 package kubernetes
 
 import (
-	"fmt"
 	"io/ioutil"
 	"regexp"
 	"strings"
@@ -111,7 +110,6 @@ func updateAnnotations(def []byte, tagAll string, f func(map[string]string) map[
 	replaced := false
 	annotationsRE := regexp.MustCompile(`(?m:\n  annotations:\s*(?:#.*)*(?:\n    .*)*$)`)
 	newDef := annotationsRE.ReplaceAllStringFunc(string(def), func(found string) string {
-		fmt.Println(string(def))
 		if !replaced {
 			replaced = true
 			return fragment
@@ -121,7 +119,6 @@ func updateAnnotations(def []byte, tagAll string, f func(map[string]string) map[
 	if !replaced {
 		metadataRE := multilineRE(`(metadata:\s*(?:#.*)*)`)
 		newDef = metadataRE.ReplaceAllStringFunc(string(def), func(found string) string {
-			fmt.Println(string(def))
 			if !replaced {
 				replaced = true
 				f := found + fragment

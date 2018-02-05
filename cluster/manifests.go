@@ -1,7 +1,6 @@
 package cluster
 
 import (
-	"fmt"
 	"io/ioutil"
 	"os"
 
@@ -52,15 +51,11 @@ func UpdateManifest(m Manifests, root string, serviceID flux.ResourceID, f func(
 		return err
 	}
 
-	fmt.Printf("Old def: %#v\n", string(def))
-
 	newDef, err := f(def)
 
 	if err != nil {
 		return err
 	}
-
-	fmt.Printf("New def: %#v\n", string(newDef))
 
 	fi, err := os.Stat(paths[0])
 	if err != nil {

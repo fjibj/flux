@@ -6,7 +6,7 @@ import (
 
 	"github.com/golang/glog"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -30,7 +30,7 @@ import (
 
 const (
 	controllerAgentName = "helm-operator"
-	CacheSyncTimeout    = 30 * time.Second
+	CacheSyncTimeout    = 180 * time.Second
 )
 
 const (
@@ -142,26 +142,23 @@ func (c *Controller) Run(threadiness int, stopCh <-chan struct{}) error {
 	// Wait for the caches to be synced before starting workers
 	c.logger.Log("info", "----------> Waiting for informer caches to sync")
 
-	// NOTE
-	// There seems to be a bug releated to custom resources, where
-	// cache.WaitForCacheSync only works for newly detected custom resource type.
-	// Otherwise it blocks forever. It, can be occasionally intermittent.
-
-	// TODO !!!
-	//  cache.WaitForCacheSync should time out when taking too long.
-
-	err := c.waitForCacheSync(stopCh)
-	if err != nil {
-		return fmt.Errorf("error: %s", fmt.Sprintf("failed to sync caches: %s", err))
+	// ORIGINAL implementation
+	if ok := cache.WaitForCacheSync(stopCh, c.fhrSynced); !ok {
+		return fmt.Errorf("error: %s", "failed to wait for caches to sync")
 	}
+	c.logger.Log("info", "<---------- informer caches synced")
 
 	/*
-		if ok := cache.WaitForCacheSync(stopCh, c.fhrSynced); !ok {
-			return fmt.Errorf("error: %s", "failed to wait for caches to sync")
+		// NOTE
+		// There seems to be a bug releated to custom resources, where
+		// cache.WaitForCacheSync only works for newly detected custom resource type.
+		// Otherwise it blocks forever. It, can be occasionally intermittent.
+		err := c.waitForCacheSync(stopCh)
+		if err != nil {
+			return fmt.Errorf("error: %s", fmt.Sprintf("failed to sync caches: %s", err))
 		}
+		c.logger.Log("info", "<---------- informer caches synced")
 	*/
-
-	c.logger.Log("info", "<---------- informer caches synced")
 
 	c.logger.Log("info", "=== Starting workers ===")
 	for i := 0; i < threadiness; i++ {
@@ -274,7 +271,7 @@ func (c *Controller) syncHandler(key string) error {
 	// Custom Resource fhr contains all information we need to know about the Chart release
 	fhr, err := c.fhrLister.FluxHelmResources(namespace).Get(name)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8serrors.IsNotFound(err) {
 			c.logger.Log("info", fmt.Sprintf("Fluxhelmresource '%s' referred to in work queue no longer exists", key))
 			runtime.HandleError(fmt.Errorf("Fluxhelmresource '%s' referred to in work queue no longer exists", key))
 			return nil
@@ -283,46 +280,60 @@ func (c *Controller) syncHandler(key string) error {
 		return err
 	}
 
-	/*
-
-		releaseName := chartrelease.GetReleaseName(*fhr)
-		// find if release exists
-		_, err = c.release.Get(releaseName)
-		//c.logger.Log("info", fmt.Sprintf("+++++ Getting release: rls = %#v", rls))
-		//c.logger.Log("info", fmt.Sprintf("+++++ Getting release: error = %#v", err))
-		c.logger.Log("info", fmt.Sprintf("Error when getting release: err.Error() = %s", err.Error()))
-
-		var syncType chartrelease.ReleaseType
-		if err != nil {
-			if err.Error() == "NOT EXISTS" {
-				syncType = chartrelease.ReleaseType("CREATE")
-				c.logger.Log("info", fmt.Sprintf("Creating a new Chart release: %s", releaseName))
-			} else {
-				c.logger.Log("error", fmt.Sprintf("Failure to do Chart release [%s]: %#v", releaseName, err))
-				return err
-			}
-		}
-		if err == nil {
-			syncType = chartrelease.ReleaseType("UPDATE")
-		}
-		_, err = c.release.Install(releaseName, *fhr, syncType)
-		if err != nil {
+	releaseName := chartrelease.GetReleaseName(*fhr)
+	// find if release exists
+	_, err = c.release.Get(releaseName)
+	var syncType chartrelease.ReleaseType
+	if err != nil {
+		if err.Error() == "NOT EXISTS" {
+			syncType = chartrelease.ReleaseType("CREATE")
+			c.logger.Log("info", fmt.Sprintf("Creating a new Chart release: %s", releaseName))
+		} else {
+			c.logger.Log("error", fmt.Sprintf("Failure to do Chart release [%s]: %#v", releaseName, err))
 			return err
 		}
-	*/
+	}
+	if err == nil {
+		syncType = chartrelease.ReleaseType("UPDATE")
+	}
+	_, err = c.release.Install(releaseName, *fhr, syncType)
+	if err != nil {
+		return err
+	}
+
 	c.recorder.Event(fhr, corev1.EventTypeNormal, ChartSynced, MessageChartSynced)
 	return nil
 }
 
-// TODO !!!
-//  cache.WaitForCacheSync should time out when taking too long.
+// waitForCacheSync ... wraps cache.WaitForCacheSync to provide a fix for a bug, where
+//		cache.WaitForCacheSync hangs after the first successful cache syncing for Custom Resource
+//		informer cache.
+//		We send the cache.WaitForCacheSync off and it either returns or
+//		we get a timeout
 func (c *Controller) waitForCacheSync(stopCh <-chan struct{}) error {
-	/*
-		if ok := cache.WaitForCacheSync(stopCh, c.fhrSynced); !ok {
-			return fmt.Errorf("error: %s", "failed to wait for caches to sync")
+	okCh := make(chan bool)
+	go func(ch chan bool) {
+		ok := cache.WaitForCacheSync(stopCh, c.fhrSynced)
+		ch <- ok
+	}(okCh)
+
+	select {
+	case ok := <-okCh:
+		if !ok {
+			fmt.Printf("not ok ...CACHE SYNC INFO: c.fhrSynced = %#v\n\n", c.fhrSynced)
+			return fmt.Errorf("failure to sync Custom Resource informer cache")
 		}
-	*/
-	return nil
+		fmt.Printf("CACHE SYNC INFO: c.fhrSynced() = %#v\n\n", c.fhrSynced())
+		return nil
+	case <-time.After(CacheSyncTimeout):
+		fmt.Printf("timeout ... CACHE SYNC INFO: c.fhrSynced() = %#v\n\n", c.fhrSynced())
+		/*
+			syncedFunc := func() bool { return true }
+			c.fhrSynced = cache.InformerSynced(syncedFunc)
+			return errors.New("Timeout during informer cache sync")
+		*/
+		return nil
+	}
 }
 
 func checkCustomResourceType(obj interface{}) (ifv1.FluxHelmResource, bool) {

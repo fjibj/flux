@@ -101,7 +101,7 @@ func TestUpdatePolicies(t *testing.T) {
 	for _, c := range changes {
 		caseIn := templToString(t, annotationsTemplate, c.in)
 		caseOut := templToString(t, annotationsTemplate, c.out)
-		out, err := (&Manifests{}).UpdatePolicies([]byte(caseIn), c.update)
+		out, err := (&Manifests{}).UpdatePolicies([]byte(caseIn), "default:deployment/nginx", c.update)
 
 		if err != nil {
 			t.Errorf("[%s] %v", c.name, err)
@@ -116,7 +116,7 @@ func TestUpdateListPolicies(t *testing.T) {
 	for _, c := range changes {
 		listIn := templToString(t, listAnnotationsTemplate, c.in)
 		listOut := templToString(t, listAnnotationsTemplate, c.out)
-		out, err := (&Manifests{}).UpdatePolicies([]byte(listIn), c.update)
+		out, err := (&Manifests{}).UpdatePolicies([]byte(listIn), "default:deployment/a-deployment", c.update)
 
 		if err != nil {
 			t.Fatalf("[%s] %v", c.name, err)

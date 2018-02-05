@@ -13,51 +13,31 @@ import (
 	"github.com/weaveworks/flux/policy"
 )
 
-func (m *Manifests) UpdatePolicies(in []byte, update policy.Update) ([]byte, error) {
+func (m *Manifests) UpdatePolicies(in []byte, serviceID string, update policy.Update) ([]byte, error) {
 	tagAll, _ := update.Add.Get(policy.TagAll)
 
 	var b []byte
-	resources, err := resource.ParseMultidoc(in, "update")
+
+	u, err := updateAnnotations(in, tagAll, func(a map[string]string) map[string]string {
+		for p, v := range update.Add {
+			if p == policy.TagAll {
+				continue
+			}
+			a[resource.PolicyPrefix+string(p)] = v
+		}
+		for p, _ := range update.Remove {
+			delete(a, resource.PolicyPrefix+string(p))
+		}
+		return a
+	})
 
 	if err != nil {
 		return nil, err
 	}
 
-	for _, r := range resources {
-		u, err := updateAnnotations(r.Bytes(), tagAll, func(a map[string]string) map[string]string {
-			for p, v := range update.Add {
-				if p == policy.TagAll {
-					continue
-				}
-				a[resource.PolicyPrefix+string(p)] = v
-			}
-			for p, _ := range update.Remove {
-				delete(a, resource.PolicyPrefix+string(p))
-			}
-			return a
-		})
-
-		if err != nil {
-			return nil, err
-		}
-
-		b = append(b, u...)
-	}
+	b = append(b, u...)
 
 	return b, nil
-
-	// return updateAnnotations(in, tagAll, func(a map[string]string) map[string]string {
-	// 	for p, v := range update.Add {
-	// 		if p == policy.TagAll {
-	// 			continue
-	// 		}
-	// 		a[resource.PolicyPrefix+string(p)] = v
-	// 	}
-	// 	for p, _ := range update.Remove {
-	// 		delete(a, resource.PolicyPrefix+string(p))
-	// 	}
-	// 	return a
-	// })
 }
 
 func updateAnnotations(def []byte, tagAll string, f func(map[string]string) map[string]string) ([]byte, error) {

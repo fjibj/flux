@@ -116,7 +116,7 @@ func TestUpdatePolicies(t *testing.T) {
 
 func TestUpdateListPolicies(t *testing.T) {
 	for _, c := range changes {
-		id := flux.MakeResourceID("default", "deployment", "a-deployment")
+		id := flux.MakeResourceID("default", "deployment", "b-deployment")
 		listIn := templToString(t, listAnnotationsTemplate, c.in)
 		listOut := templToString(t, listAnnotationsTemplate, c.out)
 		out, err := (&Manifests{}).UpdatePolicies([]byte(listIn), id, c.update)
@@ -164,9 +164,7 @@ items:
   - apiVersion: extensions/v1beta1
     kind: Deployment
     metadata:
-    {{with .}}  annotations:{{range $k, $v := .}}
-        {{$k}}: {{printf "%q" $v}}{{end}}
-    {{end}}  name: a-deployment
+      name: a-deployment
     spec:
       template:
         metadata:
@@ -179,7 +177,9 @@ items:
   - apiVersion: extensions/v1beta1
     kind: Deployment
     metadata:
-      name: b-deployment
+    {{with .}}  annotations:{{range $k, $v := .}}
+        {{$k}}: {{printf "%q" $v}}{{end}}
+    {{end}}  name: b-deployment
     spec:
       template:
         metadata:

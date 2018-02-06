@@ -87,7 +87,6 @@ func updateAnnotations(def []byte, serviceID flux.ResourceID, tagAll string, f f
 		}
 	}
 	newAnnotations := f(annotations)
-
 	// Write the new annotations back into the manifest
 	// Generate a fragment of the new annotations.
 	var fragment string

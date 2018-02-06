@@ -50,11 +50,12 @@ func updateAnnotations(def []byte, serviceID flux.ResourceID, tagAll string, f f
 	isList := strings.Contains(str, "kind: List")
 	var annotations map[string]string
 	var containers []resource.Container
-
+	var annotationsExpression string
+	var metadataExpression string
 	if isList {
 		var l resource.List
 		err := yaml.Unmarshal(def, &l)
-		// find the item ew are trying to update in the List
+		// find the item we are trying to update in the List
 		for _, item := range l.Items {
 			if item.ResourceID().String() == serviceID.String() {
 				annotations = item.Metadata.AnnotationsOrNil()
@@ -65,7 +66,12 @@ func updateAnnotations(def []byte, serviceID flux.ResourceID, tagAll string, f f
 		if err != nil {
 			return nil, err
 		}
+
+		annotationsExpression = `(?m:\n\s{6}annotations:\s*(?:#.*)*(?:\n\s{8}.*)*$)`
+		metadataExpression = `(?m:\n\s{4}metadata:\s*(?:#.*)*(?:\n\s*.*))`
 	} else {
+		annotationsExpression = `(?m:\n  annotations:\s*(?:#.*)*(?:\n    .*)*$)`
+		metadataExpression = `(?m:^(metadata:\s*(?:#.*)*)$)`
 		annotations = manifest.Metadata.AnnotationsOrNil()
 		containers = manifest.Spec.Template.Spec.Containers
 	}
@@ -107,11 +113,16 @@ func updateAnnotations(def []byte, serviceID flux.ResourceID, tagAll string, f f
 		}
 	}
 
+	if isList {
+		fragment = regexp.MustCompile(`(.+)`).ReplaceAllString(fragment, "  $1")
+		fragment = regexp.MustCompile(`(.+)`).ReplaceAllString(fragment, "  $1")
+	}
+
 	// Find where to insert the fragment.
 	// TODO: This should handle potentially different indentation.
 	// TODO: There's probably a more elegant regex-ey way to do this in one pass.
 	replaced := false
-	annotationsRE := regexp.MustCompile(`(?m:\n  annotations:\s*(?:#.*)*(?:\n    .*)*$)`)
+	annotationsRE := regexp.MustCompile(annotationsExpression)
 	newDef := annotationsRE.ReplaceAllStringFunc(str, func(found string) string {
 		if !replaced {
 			replaced = true
@@ -120,7 +131,7 @@ func updateAnnotations(def []byte, serviceID flux.ResourceID, tagAll string, f f
 		return found
 	})
 	if !replaced {
-		metadataRE := multilineRE(`(metadata:\s*(?:#.*)*)`)
+		metadataRE := regexp.MustCompile(metadataExpression)
 		newDef = metadataRE.ReplaceAllStringFunc(str, func(found string) string {
 			if !replaced {
 				replaced = true

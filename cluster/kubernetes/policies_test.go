@@ -122,11 +122,16 @@ func TestUpdateListPolicies(t *testing.T) {
 		out, err := (&Manifests{}).UpdatePolicies([]byte(listIn), id, c.update)
 
 		if err != nil {
-			t.Fatalf("[%s] %v", c.name, err)
+			t.Errorf("[%s] %v", c.name, err)
+		}
+
+		if out == nil {
+			// Do this to print the expected vs actual for debugging
+			out = []byte(listIn)
 		}
 
 		if string(out) != listOut {
-			t.Errorf("have: %v\nwant: %v\n", string(out), listOut)
+			t.Errorf("[%s]\nhave: %v\nwant: %v\n", c.name, string(out), listOut)
 		}
 	}
 }
@@ -174,9 +179,7 @@ items:
   - apiVersion: extensions/v1beta1
     kind: Deployment
     metadata:
-    {{with .}}  annotations:{{range $k, $v := .}}
-        {{$k}}: {{printf "%q" $v}}{{end}}
-    {{end}}  name: b-deployment
+      name: b-deployment
     spec:
       template:
         metadata:

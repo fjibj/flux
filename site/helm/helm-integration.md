@@ -19,17 +19,19 @@ Chart release information is described through Kubernetes Custom Resource (CR) m
 
 Flux-Helm Integration implementation consists of two parts:
 
-1. *Flux agent* monitors user git repo containing deployment configuration for applications/services. On detecting changes it applies the manifests.
+1. *Flux agent* monitors user git repo containing deployment configuration for applications/services, ie Custom Resource manifests. On detecting changes it applies the manifests, resulting in creation or update of Custom Resources.
 
-2. *Helm operator* deals with Helm Chart releases. The operator watches for changes of Custom Resources of kind FluxHelmResource. It receives Kubernetes Events and acts accordingly, installing, upgrading or deleting a release.
+2. *Helm operator* deals with Helm Chart releases. The operator watches for changes of Custom Resources of kind FluxHelmResource. It receives Kubernetes Events and acts accordingly, installing, upgrading or deleting a Chart release.
 
 ## More detail
 
  - Kubernetes Custom Resource (CR) manifests contain all the information needed to do a Chart release. There is 1-2-1 releationship between a Helm Chart and a Custom Resource.
- 
- - Flux works, at the moment, with one git repo. For Helm integration this repo will initially contain both the desired Chart release information and Chart directories for each application/service. 
 
- - All Chart directories are located under one git path. All Charts release configuration is located under one git path. The git paths cannot be the repo root.
+ - Custom resource manifests can be provided several/all in one file, or in individual files
+ 
+ - Flux works, at the moment, with one git repo. For Helm integration this repo will initially contain both the desired Chart release information (CR manifests) and Chart directories for each application/service. 
+
+ - All Charts release configuration is located under one git path. All Chart directories are located under one git path. The git paths must be subdirectories under the repo root.
 
  - Example of Custom Resource manifest:
  ```
@@ -53,8 +55,8 @@ Flux-Helm Integration implementation consists of two parts:
         value: 301
       - name: resources.requests.memory
         values: 256Mi
-
  ```
+
   - name of the resource must be unique across all namespaces
   - namespace is where both the Custom Resource and the Chart, whose deployment state it describes, will live
   - labels.chart must be provided. the label contains this Chart's path within the repo (slash replaced with underscore)

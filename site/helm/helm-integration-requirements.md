@@ -10,13 +10,9 @@ menu_order: 20
 # Git repo
 
  - One repo containing both release state information (Custom Resource manifests) and Charts themselves
-
  - Release state information in the form of Custom Resources manifests is located under a particular path ("releaseconfig" by default; can be overriden)
-
  - Charts are colocated under another path ("charts" by default; can be overriden)
-
  - Custom Resource namespace reflects where the release should be done
-
  - example of a test repo: https://github.com/tamarakaufler/helm-fhr-test
 
 # Custom Resource manifest content
@@ -56,6 +52,6 @@ menu_order: 20
 ## Optional field
 
  - releasename:
- 
+
   - if a release already exists and Flux should start managing it, then releasename must be provided
   - if releasename is not provided, Flux will construct a release name based on the namespace and the Custom Resource name (ie $namespace-$CR_name)

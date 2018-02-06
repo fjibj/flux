@@ -16,9 +16,7 @@ import (
 func (m *Manifests) UpdatePolicies(in []byte, serviceID flux.ResourceID, update policy.Update) ([]byte, error) {
 	tagAll, _ := update.Add.Get(policy.TagAll)
 
-	var b []byte
-
-	u, err := updateAnnotations(in, serviceID, tagAll, func(a map[string]string) map[string]string {
+	return updateAnnotations(in, serviceID, tagAll, func(a map[string]string) map[string]string {
 		for p, v := range update.Add {
 			if p == policy.TagAll {
 				continue
@@ -30,14 +28,6 @@ func (m *Manifests) UpdatePolicies(in []byte, serviceID flux.ResourceID, update 
 		}
 		return a
 	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	b = append(b, u...)
-
-	return b, nil
 }
 
 func updateAnnotations(def []byte, serviceID flux.ResourceID, tagAll string, f func(map[string]string) map[string]string) ([]byte, error) {
@@ -47,7 +37,7 @@ func updateAnnotations(def []byte, serviceID flux.ResourceID, tagAll string, f f
 	}
 
 	str := string(def)
-	isList := strings.Contains(str, "kind: List")
+	isList := manifest.Kind == "List"
 	var annotations map[string]string
 	var containers []resource.Container
 	var annotationsExpression string
@@ -55,6 +45,11 @@ func updateAnnotations(def []byte, serviceID flux.ResourceID, tagAll string, f f
 	if isList {
 		var l resource.List
 		err := yaml.Unmarshal(def, &l)
+
+		if err != nil {
+			return nil, err
+		}
+
 		// find the item we are trying to update in the List
 		for _, item := range l.Items {
 			if item.ResourceID().String() == serviceID.String() {
@@ -63,12 +58,9 @@ func updateAnnotations(def []byte, serviceID flux.ResourceID, tagAll string, f f
 				break
 			}
 		}
-		if err != nil {
-			return nil, err
-		}
 
 		annotationsExpression = `(?m:\n\s{6}annotations:\s*(?:#.*)*(?:\n\s{8}.*)*$)`
-		metadataExpression = `(?m:\n\s{4}metadata:\s*(?:#.*)*(?:\n\s*.*))`
+		metadataExpression = `(?m:\n\s{4}metadata:\s*(?:#.*)*\n\s*name:\s(.*))`
 	} else {
 		annotationsExpression = `(?m:\n  annotations:\s*(?:#.*)*(?:\n    .*)*$)`
 		metadataExpression = `(?m:^(metadata:\s*(?:#.*)*)$)`
@@ -122,6 +114,8 @@ func updateAnnotations(def []byte, serviceID flux.ResourceID, tagAll string, f f
 	// TODO: There's probably a more elegant regex-ey way to do this in one pass.
 	replaced := false
 	annotationsRE := regexp.MustCompile(annotationsExpression)
+	_, _, id := serviceID.Components()
+
 	newDef := annotationsRE.ReplaceAllStringFunc(str, func(found string) string {
 		if !replaced {
 			replaced = true
@@ -133,9 +127,16 @@ func updateAnnotations(def []byte, serviceID flux.ResourceID, tagAll string, f f
 		metadataRE := regexp.MustCompile(metadataExpression)
 		newDef = metadataRE.ReplaceAllStringFunc(str, func(found string) string {
 			if !replaced {
-				replaced = true
-				f := found + fragment
-				return f
+				// If not a list, it is safe to do a straight replace
+				if !isList {
+					replaced = true
+					return found + fragment
+				}
+				// The metadata must contain the right serviceID in order to replace the annotations
+				if strings.Contains(found, "name: "+id) {
+					replaced = true
+					return found + fragment
+				}
 			}
 			return found
 		})

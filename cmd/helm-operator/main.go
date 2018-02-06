@@ -13,19 +13,6 @@ import (
 	"os/signal"
 
 	"github.com/go-kit/kit/log"
-	/*
-		"github.com/coreos/etcd-operator/pkg/client"
-		"github.com/coreos/etcd-operator/pkg/controller"
-		"github.com/coreos/etcd-operator/pkg/debug"
-		"github.com/coreos/etcd-operator/pkg/util/constants"
-		"github.com/coreos/etcd-operator/pkg/util/k8sutil"
-		"github.com/coreos/etcd-operator/pkg/util/probe"
-		"github.com/coreos/etcd-operator/pkg/util/retryutil"
-		"github.com/coreos/etcd-operator/version"
-	*/ //	"github.com/prometheus/client_golang/prometheus"
-	//	"github.com/sirupsen/logrus"
-
-	//"github.com/weaveworks/flux/git"
 
 	clientset "github.com/weaveworks/flux/integrations/client/clientset/versioned"
 	ifinformers "github.com/weaveworks/flux/integrations/client/informers/externalversions"
@@ -83,13 +70,6 @@ const (
 	defaultGitChartsPath = "charts"
 )
 
-type RevisionPatch struct {
-	Revision string
-}
-type StatusPatch struct {
-	Status RevisionPatch
-}
-
 func init() {
 	// Flags processing
 	fs = pflag.NewFlagSet("default", pflag.ExitOnError)
@@ -114,7 +94,6 @@ func init() {
 	customKubectl = fs.String("kubernetes-kubectl", "", "Optional, explicit path to kubectl tool")
 	gitURL = fs.String("git-url", "", "URL of git repo with Kubernetes manifests; e.g., git@github.com:weaveworks/flux-example")
 	gitBranch = fs.String("git-branch", "master", "branch of git repo to use for Kubernetes manifests")
-	gitConfigPath = fs.String("git-config-path", defaultGitConfigPath, "path within git repo to locate Custom Resource Kubernetes manifests (relative path)")
 	gitChartsPath = fs.String("git-charts-path", defaultGitChartsPath, "path within git repo to locate Helm Charts (relative path)")
 
 	// k8s-secret backed ssh keyring configuration
@@ -167,12 +146,6 @@ func main() {
 
 	// GIT REPO CONFIG ----------------------------------------------------------------------
 	mainLogger.Log("info", "\t*** Setting up git repo configs")
-	gitRemoteConfigFhr, err := git.NewGitRemoteConfig(*gitURL, *gitBranch, *gitConfigPath)
-	if err != nil {
-		mainLogger.Log("err", err)
-		os.Exit(1)
-	}
-	fmt.Printf("%#v", gitRemoteConfigFhr)
 	gitRemoteConfigCh, err := git.NewGitRemoteConfig(*gitURL, *gitBranch, *gitChartsPath)
 	if err != nil {
 		mainLogger.Log("err", err)
@@ -210,63 +183,6 @@ func main() {
 	}
 	mainLogger.Log("info", "Set up helmClient")
 
-	/*
-			// HELM TESTING ------------------------------------------------------------------------------
-			res, err := helmClient.ListReleases(
-			//k8shelm.ReleaseListLimit(10),
-			//k8shelm.ReleaseListOffset(l.offset),
-			//k8shelm.ReleaseListFilter(l.filter),
-			//k8shelm.ReleaseListSort(int32(sortBy)),
-			//k8shelm.ReleaseListOrder(int32(sortOrder)),
-			//k8shelm.ReleaseListStatuses(stats),
-			//k8shelm.ReleaseListNamespace(l.namespace),
-			)
-
-			count := res.GetTotal()
-			fmt.Printf("\t\t*** number of helm RELEASES - %d\n", count)
-			for _, rls := range res.GetReleases() {
-				fmt.Printf("\t\t*** RELEASE %#v\n\t\t\t%#v\n", rls.GetName(), rls.GetInfo())
-			}
-			//---------------------------------------------------------------------------------------
-
-			// CUSTOM RESOURCE TESTING ------------------------------------------------------------------------------
-			chartSelector := map[string]string{
-				"chart": "charts_mongodb",
-			}
-			labelsSet := labels.Set(chartSelector)
-			listOptions := metav1.ListOptions{LabelSelector: labelsSet.AsSelector().String()}
-
-			list, err := ifClient.IntegrationsV1().FluxHelmResources("kube-system").List(listOptions)
-			fmt.Printf("\n>>> FOUND %v items\n\n", len(list.Items))
-			if err != nil {
-				glog.Errorf("Error listing all fluxhelmresources: %v", err)
-				os.Exit(1)
-			}
-
-		for _, fhr := range list.Items {
-			fmt.Println("=============== START OF LABEL FILTERING ================")
-
-			fmt.Printf("fluxhelmresource %s for chart path %q and release name [%s] with customizations %#v\n", fhr.Name, fhr.Spec.ChartGitPath, fhr.Spec.ReleaseName, fhr.Spec.Customizations)
-
-			fmt.Printf("\t\t>>> found %v parameters\n", len(fhr.Spec.Customizations))
-
-			for _, cp := range fhr.Spec.Customizations {
-				fmt.Printf("\t\t * customization with \n\t\tname %q\n\t\tvalue %q\n", cp.Name, cp.Value)
-			}
-
-			fmt.Println("-----------------------------------------------------")
-			for key, lb := range fhr.Labels {
-				fmt.Printf("\t\t*** label %s=%s\n", key, lb)
-			}
-			fmt.Println("-----------------------------------------------------")
-
-			for key, an := range fhr.Annotations {
-				fmt.Printf("\t\t+++ annotation %s=%s\n", key, an)
-			}
-			fmt.Println("-----------------------------------------------------")
-
-		}
-	*/
 	//---------------------------------------------------------------------------------------
 
 	// GIT REPO CLONING ---------------------------------------------------------------------
@@ -276,7 +192,7 @@ func main() {
 	for {
 		gitAuth, err = git.GetRepoAuth(*k8sSecretVolumeMountPath, *k8sSecretDataKey)
 		if err != nil {
-			mainLogger.Log("error", fmt.Sprintf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err))
+			mainLogger.Log("error", fmt.Sprintf("Failed to set up git authorization : %#v", err))
 			//errc <- fmt.Errorf("Failed to create Checkout [%#v]: %v", gitRemoteConfigFhr, err)
 			continue
 		}
@@ -284,24 +200,6 @@ func main() {
 			break
 		}
 		time.Sleep(10 * time.Second)
-	}
-
-	// 		Chart releases sync due to Custom Resources changes -------------------------------
-	checkoutFhr := git.NewCheckout(log.With(logger, "component", "git"), gitRemoteConfigFhr, gitAuth)
-	defer checkoutFhr.Cleanup()
-
-	// If cloning not immediately possible, we wait until it is -----------------------------
-	for {
-		mainLogger.Log("info", "Cloning repo ...")
-		ctx, cancel := context.WithTimeout(context.Background(), git.DefaultCloneTimeout)
-		err = checkoutFhr.Clone(ctx, git.FhrChangesClone)
-		cancel()
-		if err == nil {
-			break
-		}
-		mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%s, %s, %s]: %v", gitRemoteConfigFhr.URL, gitRemoteConfigFhr.Path, gitRemoteConfigFhr.Branch, err))
-		time.Sleep(10 * time.Second)
-		//errc <- fmt.Errorf("Failed to clone git [%#v]: %v", gitRemoteConfigFhr, err)
 	}
 
 	// 		Chart releases sync due to pure Charts changes ------------------------------------
@@ -317,7 +215,7 @@ func main() {
 		if err == nil {
 			break
 		}
-		mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%s, %s, %s]: %v", gitRemoteConfigCh.URL, gitRemoteConfigCh.Path, gitRemoteConfigCh.Branch, err))
+		mainLogger.Log("error", fmt.Sprintf("Failed to clone git repo [%s, %s, %s]: %v", gitRemoteConfigCh.URL, gitRemoteConfigCh.Branch, gitRemoteConfigCh.Path, err))
 		time.Sleep(10 * time.Second)
 	}
 	mainLogger.Log("info", "*** Cloned repos")
@@ -327,7 +225,7 @@ func main() {
 	go ifInformerFactory.Start(shutdown)
 
 	// OPERATOR -----------------------------------------------------------------------------
-	rel := release.New(log.With(logger, "component", "release"), helmClient, checkoutFhr, checkoutCh)
+	rel := release.New(log.With(logger, "component", "release"), helmClient, checkoutCh)
 	opr := operator.New(log.With(logger, "component", "operator"), kubeClient, ifClient, ifInformerFactory, rel)
 	if err = opr.Run(2, shutdown); err != nil {
 		msg := fmt.Sprintf("Failure to run controller: %s", err.Error())

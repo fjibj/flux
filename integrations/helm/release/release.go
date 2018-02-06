@@ -35,15 +35,13 @@ type Release struct {
 }
 
 type repo struct {
-	fhrChange   *helmgit.Checkout
-	chartChange *helmgit.Checkout
+	charts *helmgit.Checkout
 }
 
 // New creates a new Release instance
-func New(logger log.Logger, helmClient *k8shelm.Client, fhrChangeCheckout *helmgit.Checkout, chartChangeCheckout *helmgit.Checkout) *Release {
+func New(logger log.Logger, helmClient *k8shelm.Client, chartsCheckout *helmgit.Checkout) *Release {
 	repo := repo{
-		fhrChange:   fhrChangeCheckout,
-		chartChange: chartChangeCheckout,
+		charts: chartsCheckout,
 	}
 	r := &Release{
 		logger:     log.With(logger, "component", "release"),
@@ -130,13 +128,13 @@ func (r *Release) Install(releaseName string, fhr ifv1.FluxHelmResource, release
 		namespace = "default"
 	}
 
-	err := r.Repo.fhrChange.Pull()
+	err := r.Repo.charts.Pull()
 	if err != nil {
 		r.logger.Log("error", fmt.Sprintf("Failure to do git pull: %#v", err))
 		return hapi_release.Release{}, err
 	}
 
-	chartDir := filepath.Join(r.Repo.fhrChange.Dir, chartPath)
+	chartDir := filepath.Join(r.Repo.charts.Dir, chartPath)
 
 	rawVals, err := collectValues(fhr.Spec.Customizations)
 	if err != nil {

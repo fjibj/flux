@@ -20,12 +20,12 @@ import (
 const (
 	DefaultCloneTimeout = 2 * time.Minute
 	privateKeyFileMode  = os.FileMode(0400)
-	FhrChangesClone     = "fhr_sync_gitclone"
 	ChartsChangesClone  = "charts_sync_gitclone"
 )
 
 var (
 	ErrNoChanges    = errors.New("no changes made in repo")
+	ErrNoChartsDir  = errors.New("no Charts dir provided")
 	ErrNoRepo       = errors.New("no repo provided")
 	ErrNoRepoCloned = errors.New("no repo cloned")
 )
@@ -56,8 +56,8 @@ func NewGitRemoteConfig(url, branch, path string) (GitRemoteConfig, error) {
 	if len(branch) == 0 {
 		branch = "master"
 	}
-	if len(path) != 0 && path[0] == '/' {
-		return GitRemoteConfig{}, errors.New("git subdirectory (--git-config-path) if given and cannot have leading forward slash")
+	if len(path) == 0 || (len(path) != 0 && path[0] == '/') {
+		return GitRemoteConfig{}, errors.New("git subdirectory (--git-charts-path) must be probided and cannot have leading forward slash")
 	}
 
 	return GitRemoteConfig{
@@ -80,8 +80,7 @@ func NewCheckout(logger log.Logger, config GitRemoteConfig, auth *gitssh.PublicK
 
 // Clone creates a local clone of a remote repo and
 // checks out the relevant branch
-//		subdir reflects whether we are:
-//																		* acting on Custom Resource change
+//		subdir reflects the purpose of the clone:
 //																		* acting on Charts changes (syncing the cluster when there were only commits
 //																		  in the Charts parts of the repo which did not trigger Custom Resource changes)
 func (ch *Checkout) Clone(ctx context.Context, cloneSubdir string) error {

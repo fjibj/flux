@@ -74,7 +74,6 @@ helm-operator requires setup and offers customization though a multitude of flag
 |**Git repo & key etc.** |                              ||
 |--git-url               |                               | URL of git repo with Kubernetes manifests; e.g., `git@github.com:weaveworks/flux-example`|
 |--git-branch            | `master`                        | branch of git repo to use for Kubernetes manifests|
-|--git-config-path       |                               | path within git repo to locate Kubernetes Custom Resource manifests (relative path)|
 |--git-charts-path       |                               | path within git repo to locate Kubernetes Charts (relative path)|
 |**repo chart changes**  |                               | (none of these need overriding, usually) |
 |--git-poll-interval     | `5 minutes`                 | period at which to poll git repo for new commits|
